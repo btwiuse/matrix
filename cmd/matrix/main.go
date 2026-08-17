@@ -9,7 +9,7 @@ package main
 
 import (
 	"context"
-	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,67 +17,93 @@ import (
 
 	"github.com/gearshell/inject-proxy/matrix"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 )
 
 func main() {
 	var (
-		url          = flag.String("url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
-		token        = flag.String("token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
-		source       = flag.String("source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
-		mode         = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
-		addr         = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
-		timeout      = flag.Duration("timeout", 5*time.Minute, "upstream request timeout for proxy mode")
-		dataDir      = flag.String("data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
-		workspaceDir = flag.String("workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
+		url          string
+		token        string
+		source       string
+		mode         string
+		addr         string
+		timeout      time.Duration
+		dataDir      string
+		workspaceDir string
 	)
-	flag.Parse()
 
-	var handler matrix.Handler
-	switch *mode {
-	case "mock":
-		handler = matrix.NewMockHandler()
-	case "proxy":
-		handler = mustProxy(*url, *token, *source, *timeout)
-	default: // auto
-		if *url != "" && *token != "" {
-			handler = mustProxy(*url, *token, *source, *timeout)
-		} else {
-			handler = matrix.NewMockHandler()
-			log.Printf("no --url/--token given, using mock handler")
-		}
-	}
-	if *dataDir != "" {
-		handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{
-			DataDir:      *dataDir,
-			WorkspaceDir: *workspaceDir,
-		})
-		log.Printf("deploy writes assets under %s (workspace %s)", *dataDir, *workspaceDir)
+	root := &cobra.Command{
+		Use:   "matrix",
+		Short: "MiniMax matrix MCP server replica",
+		Long: "High-fidelity replica of the MiniMax matrix MCP server: the same 22 " +
+			"tools with the exact same input schemas. Tool calls are forwarded to the " +
+			"real backend when --url/--token are given (default behavior), otherwise a " +
+			"local mock serves deterministic responses.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var handler matrix.Handler
+			switch mode {
+			case "mock":
+				handler = matrix.NewMockHandler()
+			case "proxy":
+				h, err := proxyHandler(url, token, source, timeout)
+				if err != nil {
+					return err
+				}
+				handler = h
+			default: // auto
+				if url != "" && token != "" {
+					h, err := proxyHandler(url, token, source, timeout)
+					if err != nil {
+						return err
+					}
+					handler = h
+				} else {
+					handler = matrix.NewMockHandler()
+					log.Printf("no --url/--token given, using mock handler")
+				}
+			}
+			if dataDir != "" {
+				handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{
+					DataDir:      dataDir,
+					WorkspaceDir: workspaceDir,
+				})
+				log.Printf("deploy writes assets under %s (workspace %s)", dataDir, workspaceDir)
+			}
+
+			server, err := matrix.NewServer(handler)
+			if err != nil {
+				return err
+			}
+
+			ctx := context.Background()
+			if addr != "" {
+				opts := &mcp.StreamableHTTPOptions{Stateless: true}
+				h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
+				log.Printf("matrix replica listening on %s (streamable HTTP)", addr)
+				return http.ListenAndServe(addr, h)
+			}
+
+			return server.Run(ctx, &mcp.StdioTransport{})
+		},
 	}
 
-	server, err := matrix.NewServer(handler)
-	if err != nil {
-		log.Fatal(err)
-	}
+	root.Flags().StringVar(&url, "url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
+	root.Flags().StringVar(&token, "token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
+	root.Flags().StringVar(&source, "source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
+	root.Flags().StringVar(&mode, "mode", "auto", "handler mode: auto | proxy | mock")
+	root.Flags().StringVar(&addr, "http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
+	root.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "upstream request timeout for proxy mode")
+	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
+	root.Flags().StringVar(&workspaceDir, "workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
 
-	ctx := context.Background()
-	if *addr != "" {
-		opts := &mcp.StreamableHTTPOptions{Stateless: true}
-		h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
-		log.Printf("matrix replica listening on %s (streamable HTTP)", *addr)
-		if err := http.ListenAndServe(*addr, h); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
-	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+	if err := root.Execute(); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func mustProxy(url, token, source string, timeout time.Duration) matrix.Handler {
+func proxyHandler(url, token, source string, timeout time.Duration) (matrix.Handler, error) {
 	if url == "" || token == "" {
-		log.Fatalf("proxy mode requires both --url and --token")
+		return nil, fmt.Errorf("proxy mode requires both --url and --token")
 	}
 	cfg := matrix.ProxyConfig{
 		URL:        url,
@@ -85,7 +111,7 @@ func mustProxy(url, token, source string, timeout time.Duration) matrix.Handler 
 		Source:     source,
 		HTTPClient: &http.Client{Timeout: timeout},
 	}
-	return matrix.NewProxyHandler(cfg)
+	return matrix.NewProxyHandler(cfg), nil
 }
 
 func envOr(k, def string) string {

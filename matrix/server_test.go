@@ -20,7 +20,7 @@ func startServer(t *testing.T) *mcp.ClientSession {
 	t.Cleanup(cancel)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "matrix-replica-test", Version: "0.0.1"}, nil)
-	transport := &mcp.CommandTransport{Command: exec.CommandContext(ctx, "go", "run", "../cmd/matrix", "-mode", "mock")}
+	transport := &mcp.CommandTransport{Command: exec.CommandContext(ctx, "go", "run", "../cmd/matrix", "--mode", "mock")}
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -326,7 +326,7 @@ func startHTTPProcess(t *testing.T, extraArgs ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
-	args := append([]string{"run", "../cmd/matrix", "-http", addr}, extraArgs...)
+	args := append([]string{"run", "../cmd/matrix", "--http", addr}, extraArgs...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
@@ -354,7 +354,7 @@ func startHTTPProcess(t *testing.T, extraArgs ...string) string {
 // end: launch the binary, connect with a go-sdk HTTP client, list tools and
 // call one.
 func TestHTTPTransport(t *testing.T) {
-	addr := startHTTPProcess(t, "-mode", "mock")
+	addr := startHTTPProcess(t, "--mode", "mock")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
@@ -402,7 +402,7 @@ func TestHTTPTransport(t *testing.T) {
 func TestHTTPTransportProxyMode(t *testing.T) {
 	url := "http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message"
 	token := "sbk_v1_AGQAMY7IGNPLZQPUQE7X5GJKPU_7B4KJGNO6F2UJOFQCFFOIT6V"
-	addr := startHTTPProcess(t, "-mode", "proxy", "-url", url, "-token", token)
+	addr := startHTTPProcess(t, "--mode", "proxy", "--url", url, "--token", token)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)

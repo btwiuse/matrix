@@ -19,14 +19,14 @@ go run ./cmd/inject-proxy --upstream http://127.0.0.1:8000 --port 8080 --inject 
 
 ```sh
 # mock 模式(离线确定性响应)
-go run ./cmd/matrix -mode mock
+go run ./cmd/matrix --mode mock
 
 # proxy 模式(转发到真实 matrix server)
 MATRIX_URL=http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message \
 MATRIX_SK=sk_... go run ./cmd/matrix
 
 # streamable HTTP
-go run ./cmd/matrix -http :8080 -mode mock
+go run ./cmd/matrix --http :8080 --mode mock
 ```
 
 详见 [`matrix/README.md`](matrix/README.md)。

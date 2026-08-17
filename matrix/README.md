@@ -18,13 +18,13 @@ backend (`DIFFS: 0`).
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
 | `deploy.go` | `LocalDeploy`: local `deploy` that copies dist assets into `data/<project>` |
-| `cmd/matrix` | Entry point: stdio or streamable HTTP |
+| `cmd/matrix` | Entry point (cobra CLI): stdio or streamable HTTP |
 
 ## Run
 
 ```sh
 # Mock mode (offline, deterministic)
-go run ./cmd/matrix -mode mock
+go run ./cmd/matrix --mode mock
 
 # Proxy mode: forward to the real matrix server (high fidelity)
 MATRIX_URL=http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message \
@@ -32,24 +32,24 @@ MATRIX_SK=sk_... \
 go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 
 # Streamable HTTP on :8080
-go run ./cmd/matrix -http :8080 -mode mock
+go run ./cmd/matrix --http :8080 --mode mock
 
 # Local deploy: dist assets are copied into ./data/<project>
-go run ./cmd/matrix -mode mock -data-dir ./data -workspace-dir /workspace
+go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace
 ```
 
 ## Flags
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-mode` | `auto` | `auto` \| `proxy` \| `mock` |
-| `-url` | `$MATRIX_URL` | Real matrix MCP HTTP endpoint |
-| `-token` | `$MATRIX_SK` | `?sk=` token |
-| `-source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
-| `-http` | empty | Address for streamable HTTP (e.g. `:8080`); empty = stdio |
-| `-timeout` | `5m` | Upstream request timeout (proxy mode) |
-| `-data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
-| `-workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |
+| `--mode` | `auto` | `auto` \| `proxy` \| `mock` |
+| `--url` | `$MATRIX_URL` | Real matrix MCP HTTP endpoint |
+| `--token` | `$MATRIX_SK` | `?sk=` token |
+| `--source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
+| `--http` | empty | Address for streamable HTTP (e.g. `:8080`); empty = stdio |
+| `--timeout` | `5m` | Upstream request timeout (proxy mode) |
+| `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
+| `--workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |
 
 ## Verify
 

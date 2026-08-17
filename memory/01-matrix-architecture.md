@@ -6,7 +6,7 @@
 ## 分层
 
 ```
-┌─ cmd/matrix/main.go   入口: -mode auto|proxy|mock, stdio 或 streamable HTTP
+┌─ cmd/matrix/main.go   入口 (cobra CLI): --mode auto|proxy|mock, stdio 或 streamable HTTP
 │
 ├─ matrix/server.go      go-sdk server 组装: LoadSpecs() 读嵌入 schema.json,
 │                        registerAll() 用 mcp.AddTool 注册全部 22 工具
@@ -37,8 +37,8 @@
 ## 入口参数
 
 ```sh
-go run ./cmd/matrix -mode mock                                  # 离线确定性
-go run ./cmd/matrix -http :8080 -mode mock                     # streamable HTTP
+go run ./cmd/matrix --mode mock                                  # 离线确定性
+go run ./cmd/matrix --http :8080 --mode mock                     # streamable HTTP
 MATRIX_URL=... MATRIX_SK=... go run ./cmd/matrix               # auto→proxy
 ```
 
