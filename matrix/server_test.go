@@ -3,6 +3,7 @@ package matrix_test
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os/exec"
 	"testing"
 	"time"
@@ -165,5 +166,77 @@ func TestProxyHandlerForwardsToRealServer(t *testing.T) {
 	}
 	if _, ok := body["available_voices"]; !ok {
 		t.Errorf("expected available_voices from real server, got %v", body)
+	}
+}
+
+// TestHTTPTransport verifies the -http streamable HTTP entry point end to
+// end: launch the binary, connect with a go-sdk HTTP client, list tools and
+// call one.
+func TestHTTPTransport(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // release; the subprocess binds it
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	cmd := exec.CommandContext(ctx, "go", "run", "../cmd/matrix", "-mode", "mock", "-http", addr)
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	// Wait for the HTTP endpoint to accept connections.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server did not come up on %s: %v", addr, err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "matrix-http-test", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             "http://" + addr,
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("http connect: %v", err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("http ListTools: %v", err)
+	}
+	if len(res.Tools) != 22 {
+		t.Fatalf("expected 22 tools over HTTP, got %d", len(res.Tools))
+	}
+
+	call, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "get_voice_list",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("http CallTool: %v", err)
+	}
+	if call.IsError {
+		t.Fatalf("unexpected error over HTTP: %+v", call)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(textOf(t, call)), &body); err != nil {
+		t.Fatalf("output is not JSON over HTTP: %v", err)
+	}
+	if _, ok := body["available_voices"]; !ok {
+		t.Errorf("expected available_voices over HTTP, got %v", body)
 	}
 }
