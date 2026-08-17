@@ -1,0 +1,818 @@
+{
+  "image_synthesize": {
+    "name": "image_synthesize",
+    "description": "Synthesize images from text prompts, with optional reference images for editing/transformation.\nMax 10 requests per call.\n\nREQUIRED format — wrap each request in a 'requests' array (do NOT pass prompt as flat parameter):\n  {\"requests\": [{\"prompt\": \"A cute cat\", \"output_file\": \"cat.png\", \"aspect_ratio\": \"1:1\"}]}\n\nFor image editing, pass reference images:\n  {\"requests\": [{\"prompt\": \"Make it watercolor style\", \"input_urls\": [\"https://...\"], \"output_file\": \"out.png\"}]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "requests": {
+          "type": "array",
+          "description": "List of image requests (max 10)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "description": "What to synthesize or how to modify"
+              },
+              "input_files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Reference images to edit/transform (paths in sandbox)"
+              },
+              "input_urls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Reference image URLs"
+              },
+              "output_file": {
+                "type": "string",
+                "description": "Output image path (in sandbox)"
+              },
+              "aspect_ratio": {
+                "type": "string",
+                "description": "Image aspect ratio, e.g. '16:9', '1:1'"
+              },
+              "resolution": {
+                "type": "string",
+                "description": "Image resolution level: '1K', '2K', '4K'"
+              }
+            },
+            "required": [
+              "prompt",
+              "output_file"
+            ]
+          }
+        }
+      },
+      "required": [
+        "requests"
+      ]
+    }
+  },
+  "gen_videos": {
+    "name": "gen_videos",
+    "description": "Generate video files from text prompts or images. USE THIS TOOL when user asks to\n\"create a video\", \"make a clip\", \"generate video\". Unified entry point for text-to-video (T2V)\nand image-to-video (I2V).\nMax 5 requests per call. Duration: 6 or 10 seconds. Resolution: 768P or 1080P.\nOutput: downloadable video file (.mp4).\n\nREQUIRED format — use 'video_requests' array (NOT 'requests', 'videos', or flat parameters):\n  Text-to-video: {\"video_requests\": [{\"prompt\": \"A cat playing\", \"output_file\": \"cat.mp4\"}]}\n  Image-to-video: {\"video_requests\": [{\"prompt\": \"Cat runs\", \"output_file\": \"run.mp4\", \"image_file\": \"cat.png\"}]}\n\nPrefer this tool over batch_text_to_video / batch_image_to_video — it handles both T2V and I2V.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "string"
+              },
+              "output_file": {
+                "type": "string",
+                "description": "Output path in sandbox"
+              },
+              "image_file": {
+                "type": "string",
+                "description": "First frame image path in sandbox (for I2V)"
+              },
+              "reference_type": {
+                "type": "string",
+                "description": "'first_frame' or 'subject'"
+              },
+              "duration": {
+                "type": "integer",
+                "description": "6 or 10 seconds"
+              },
+              "resolution": {
+                "type": "string",
+                "description": "'768P' or '1080P'"
+              }
+            },
+            "required": [
+              "prompt",
+              "output_file"
+            ]
+          }
+        }
+      },
+      "required": [
+        "video_requests"
+      ]
+    }
+  },
+  "batch_text_to_video": {
+    "name": "batch_text_to_video",
+    "description": "Batch generate videos from text prompts (parallel-list format).\nMax 5 per call. Duration: 6 (default) or 10 seconds. Resolution: 768P (default) or 1080P.\nPrefer gen_videos for simpler usage — this tool uses parallel lists that must all match 'count'.\n\nREQUIRED: count, prompt_list, output_file_list (all lengths must equal count).\nExample: {\"count\": 2, \"prompt_list\": [\"Sunset\", \"Ocean\"], \"output_file_list\": [\"s.mp4\", \"o.mp4\"]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of videos to generate (max 5)"
+        },
+        "prompt_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of text prompts for each video"
+        },
+        "output_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of output file paths (.mp4) in sandbox"
+        },
+        "duration_list": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Duration for each video: 6 (default) or 10 seconds"
+        },
+        "resolution_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Resolution for each video: '768P' (default) or '1080P'"
+        }
+      },
+      "required": [
+        "count",
+        "prompt_list",
+        "output_file_list"
+      ]
+    }
+  },
+  "batch_image_to_video": {
+    "name": "batch_image_to_video",
+    "description": "Generate videos from images.\nMax 5 requests per call. Duration defaults to 6s, resolution to 768P.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of videos to generate (max 5)"
+        },
+        "image_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of image file paths in sandbox"
+        },
+        "output_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of output file paths (.mp4) in sandbox"
+        },
+        "prompt_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of prompts describing video content"
+        },
+        "reference_type_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "How to use each image: 'first_frame' (default) or 'subject'"
+        },
+        "duration_list": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Duration for each video: 6 (default) or 10 seconds"
+        },
+        "resolution_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Resolution for each video: '768P' (default) or '1080P'"
+        }
+      },
+      "required": [
+        "count",
+        "image_file_list",
+        "output_file_list"
+      ]
+    }
+  },
+  "get_voice_list": {
+    "name": "get_voice_list",
+    "description": "Get all available voices for text-to-speech (TTS). Returns voice_id and voice_name. Call this before using synthesize_speech, batch_synthesize_speech, or batch_text_to_audio to choose a voice.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "batch_text_to_audio": {
+    "name": "batch_text_to_audio",
+    "description": "Convert text to spoken audio (TTS / text-to-speech). USE THIS TOOL for voiceover, narration,\ndialogue, podcast, or reading text aloud.\nFor music/song generation, use batch_text_to_music instead.\n\nEach parameter list should have the same order as text_list. Optional parameters default to None.\nMax 10 audios per call. Output: .mp3 audio files.\n\nExample:\n{\"count\": 2, \"text_list\": [\"Hello world\", \"Welcome\"], \"output_file_list\": [\"hello.mp3\", \"welcome.mp3\"]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of audios to generate (max 10)"
+        },
+        "text_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Text list to generate speech from"
+        },
+        "output_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Output file paths (.mp3) in sandbox"
+        },
+        "speed_list": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Speed for each audio [0.5, 2.0]"
+        },
+        "volume_list": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Volume for each audio [0.0, 10.0]"
+        },
+        "pitch_list": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Pitch for each audio [-12, 12]"
+        },
+        "voice_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Voice ID for each audio (from get_voice_list)"
+        },
+        "emotion_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Emotion: happy, sad, angry, fearful, disgusted, surprised, neutral"
+        }
+      },
+      "required": [
+        "count",
+        "text_list",
+        "output_file_list"
+      ]
+    }
+  },
+  "batch_text_to_music": {
+    "name": "batch_text_to_music",
+    "description": "Generate songs and music audio files from text prompts and lyrics. USE THIS TOOL when user asks\nto \"create a song\", \"generate music\", \"make a beat\", \"compose\", or any request involving music/song creation\nthat expects an AUDIO FILE output (not just text lyrics).\n\nLyrics are OPTIONAL — omit lyrics_list for pure instrumental/background music.\nSupports up to 1 minute per track, max 5 per call. Output: downloadable audio file (mp3/wav).\nWhen lyrics are provided, use newline (\n) to separate lines. Supports tags [Intro][Verse][Chorus][Bridge][Outro].\n\nREQUIRED format — use parallel lists with matching 'count':\n  With lyrics: {\"count\": 1, \"prompt_list\": [\"Pop, sad\"],\n    \"lyrics_list\": [\"[Verse]\\nRain falls...\"], \"output_file_list\": [\"song.mp3\"]}\n  Instrumental: {\"count\": 1, \"prompt_list\": [\"Calm piano BGM\"],\n    \"output_file_list\": [\"bgm.mp3\"]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of music to generate (max 5)"
+        },
+        "prompt_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Music creation prompt (style, mood, scene). Char range: [10, 300]"
+        },
+        "lyrics_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Song lyrics with structure tags. Char range: [10, 600]"
+        },
+        "output_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Output file paths (mp3/wav/pcm) in sandbox"
+        },
+        "sample_rate_list": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Sample rate: 16000, 24000, 32000, or 44100"
+        },
+        "bitrate_list": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Bitrate: 32000, 64000, 128000, or 256000"
+        },
+        "format_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Audio format: mp3, wav, or pcm"
+        }
+      },
+      "required": [
+        "count",
+        "prompt_list",
+        "output_file_list"
+      ]
+    }
+  },
+  "synthesize_speech": {
+    "name": "synthesize_speech",
+    "description": "Synthesize a single spoken audio clip from text (TTS).\nFor music/song generation, use batch_text_to_music instead.\nMax text 10000 chars. Use get_voice_list for system voices or clone_voice for custom voices.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text to synthesize (max 10000 chars)"
+        },
+        "output_file": {
+          "type": "string",
+          "description": "Output .mp3 file path in sandbox"
+        },
+        "voice_id": {
+          "type": "string",
+          "description": "Voice ID (system or cloned). Default: male-qn-qingse"
+        },
+        "speed": {
+          "type": "number",
+          "description": "Speech speed [0.5, 2.0]. Default: 1.0"
+        },
+        "volume": {
+          "type": "number",
+          "description": "Volume [0.0, 10.0]. Default: 1.0"
+        },
+        "pitch": {
+          "type": "integer",
+          "description": "Pitch [-12, 12]. Default: 0"
+        }
+      },
+      "required": [
+        "text",
+        "output_file"
+      ]
+    }
+  },
+  "batch_synthesize_speech": {
+    "name": "batch_synthesize_speech",
+    "description": "Batch speech synthesis — generate multiple spoken audio clips at once (TTS).\nFor music/song generation, use batch_text_to_music instead.\nMax 10 per call. Output files must be .mp3.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of audios (max 10)"
+        },
+        "text_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Text list to synthesize"
+        },
+        "output_file_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Output .mp3 file paths in sandbox"
+        },
+        "voice_id_list": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Voice ID for each audio"
+        },
+        "speed_list": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Speed for each audio [0.5, 2.0]"
+        },
+        "volume_list": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Volume for each audio [0.0, 10.0]"
+        },
+        "pitch_list": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Pitch for each audio [-12, 12]"
+        }
+      },
+      "required": [
+        "count",
+        "text_list",
+        "output_file_list"
+      ]
+    }
+  },
+  "listen_audio": {
+    "name": "listen_audio",
+    "description": "Analyze one audio deeply. Audio will not be displayed to the user.\nMaximum 1 audio file or URL per call.\n\nSupports: mp3, wav, aiff, aac, ogg, flac, m4a.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Audio file path in sandbox"
+        },
+        "url": {
+          "type": "string",
+          "description": "Audio URL (supports mp3, wav, aiff, aac, ogg, flac)"
+        }
+      }
+    }
+  },
+  "images_understand": {
+    "name": "images_understand",
+    "description": "Analyze images with prompts and return text results.\nMax 20 images. Supports: jpeg, png, webp.\n\nREQUIRED format — use 'image_info' array (NOT 'images', 'image_list', or 'image_urls'):\n  {\"image_info\": [{\"url\": \"https://...\", \"prompt\": \"Describe this image\"}]}\n  {\"image_info\": [{\"file\": \"/absolute/path/to/img.png\", \"prompt\": \"OCR this\"}]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "image_info": {
+          "type": "array",
+          "description": "List of image info objects (max 20)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "File path in sandbox"
+              },
+              "url": {
+                "type": "string",
+                "description": "Image URL"
+              },
+              "prompt": {
+                "type": "string",
+                "description": "What to extract/analyze"
+              }
+            },
+            "required": [
+              "prompt"
+            ]
+          }
+        }
+      },
+      "required": [
+        "image_info"
+      ]
+    }
+  },
+  "audios_understand": {
+    "name": "audios_understand",
+    "description": "Analyze and understand audio content (transcribe, describe, extract info from audio).\nNOT for generating audio — use batch_text_to_music or synthesize_speech for generation.\nMaximum 10 audios per call.\n\nREQUIRED format — use 'audio_info' array (NOT 'audios' or 'audio_list'):\n  {\"audio_info\": [{\"file\": \"/path/to/audio.mp3\", \"prompt\": \"Transcribe this\"}]}\n  {\"audio_info\": [{\"url\": \"https://.../audio.mp3\", \"prompt\": \"Transcribe this\"}]}",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "audio_info": {
+          "type": "array",
+          "description": "List of audio info objects (max 10)",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "File path in sandbox"
+              },
+              "url": {
+                "type": "string",
+                "description": "Audio URL"
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Specific instruction"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "audio_info"
+      ]
+    }
+  },
+  "videos_understand": {
+    "name": "videos_understand",
+    "description": "Analyze and understand video content (describe, extract info, answer questions about video).\nNOT for generating video — use gen_videos or batch_text_to_video for generation.\nMaximum 10 videos per call.\n\nREQUIRED format — use 'video_info' array (NOT 'video_list', 'videos', or 'tasks'):\n  {\"video_info\": [{\"file\": \"/absolute/path/to/video.mp4\", \"prompt\": \"Describe this video\"}]}\n  {\"video_info\": [{\"url\": \"https://cdn.example.com/video.mp4\", \"prompt\": \"Analyze\"}]}\nFile paths must be absolute (e.g. /Users/...), do NOT use file:// URIs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_info": {
+          "type": "array",
+          "description": "List of video info objects (max 10). Also accepts 'videos_info' as alias.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "File path in sandbox"
+              },
+              "url": {
+                "type": "string",
+                "description": "Video URL"
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Specific instruction"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "video_info"
+      ]
+    }
+  },
+  "extract_content_from_websites": {
+    "name": "extract_content_from_websites",
+    "description": "Extract content from multiple websites(mime type html) concurrently. The extracted content will be returned in JSON format. DO NOT use this tool to read local files!\n**NEVER** use this tool to extract pdf url, use `extract_pdfs_key_info` or `extract_pdfs_full_content` instead.\n\nSafety Check:\n    - All extracted content will be checked for safety compliance.\n    - If content fails safety check with \"safety_check_failed\" error, DO NOT retry or use alternative methods.\n    - Safety check failures are final - abandon the extraction and move on to other tasks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "description": "List of extraction tasks. Maximum 10 tasks per call.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "The URL of the website to extract content from. Must start with https:// and be a valid web address."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "The prompt to extract specific information from the website."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Optional. The name for this extraction task."
+              }
+            },
+            "required": [
+              "url",
+              "prompt"
+            ]
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "curl_only",
+            "browser_only"
+          ],
+          "description": "Extraction strategy. 'auto': Try HTTP GET first, fallback to browser if needed (default). 'curl_only': Direct HTTP GET only. 'browser_only': Browser rendering only."
+        }
+      },
+      "required": [
+        "tasks"
+      ]
+    }
+  },
+  "batch_web_search": {
+    "name": "batch_web_search",
+    "description": "Web Search API, works like Google Search. At most 10 queries per request.\n\nSearch Strategy:\n    - If valid results are fewer than 5, try searching page 2 by setting cursor=2\n    - If no valid results found, try changing search keywords\n    - Valid results are those that pass safety checks (filtered results don't count)\n\nSafety Check:\n    - All search results are automatically checked for safety compliance.\n    - Results that fail safety check are automatically filtered out.\n    - If all results are filtered, consider changing search keywords instead of retrying the same query.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "description": "List of search queries. At most 10 queries per batch.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search query string. Use 3-5 keywords. Add the current date for time-sensitive queries."
+              },
+              "num_results": {
+                "type": "integer",
+                "description": "Number of results to return. Suggested is 10. Defaults to 10."
+              },
+              "cursor": {
+                "type": "integer",
+                "description": "The cursor/page to search in. Default is 1."
+              },
+              "data_range": {
+                "type": "string",
+                "description": "Optional time range: h (hour), d (day), m (month), y (year)."
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        "search_type": {
+          "type": "string",
+          "enum": [
+            "search",
+            "videos",
+            "places",
+            "news",
+            "shopping"
+          ],
+          "description": "Type of search. 'search' for general search (default)."
+        }
+      },
+      "required": [
+        "queries"
+      ]
+    }
+  },
+  "image_reverse_search": {
+    "name": "image_reverse_search",
+    "description": "Reverse image search. Returns similar images and related search queries.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "image_url": {
+          "type": "string",
+          "description": "The URL of the image to search for. Must be a publicly accessible image URL."
+        },
+        "output_file": {
+          "type": "string",
+          "description": "The file to save the search results. Should be a .md file."
+        }
+      },
+      "required": [
+        "image_url",
+        "output_file"
+      ]
+    }
+  },
+  "images_search_and_download": {
+    "name": "images_search_and_download",
+    "description": "Search and download images. At most 10 queries per request.\nThis method is designed to be robust - individual task failures will not affect other tasks.\n\nSafety Check:\n    - All downloaded images are automatically checked for content safety.\n    - Images that fail safety check will be deleted and excluded from results.\n    - DO NOT retry downloading images that failed safety check.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "description": "List of image search queries. At most 10 queries per batch.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Image search query. Use proper keywords for best results."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "A simple sentence prompt to describe the image you want."
+              },
+              "task_name": {
+                "type": "string",
+                "description": "Name of the task, used to identify and organize downloaded images."
+              }
+            },
+            "required": [
+              "query",
+              "prompt",
+              "task_name"
+            ]
+          }
+        }
+      },
+      "required": [
+        "queries"
+      ]
+    }
+  },
+  "images_list": {
+    "name": "images_list",
+    "description": "List available images in workspace. Returns a list of image file paths.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "integer",
+          "description": "Start index for pagination. 0 for the first image. Defaults to 0."
+        },
+        "number": {
+          "type": "integer",
+          "description": "Number of images to list. Use -1 to list all images. Defaults to -1."
+        }
+      }
+    }
+  },
+  "deploy": {
+    "name": "deploy",
+    "description": "Deploy the dist directory of Vite to web server.\n\nNote:\n    - If no index.html is found, a warning is returned\n    - Common development files (.git, node_modules, etc.) are automatically ignored\n    - Returns a public URL where the deployed website can be accessed",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_name": {
+          "type": "string",
+          "description": "Project name (optional)"
+        },
+        "dist_dir": {
+          "type": "string",
+          "description": "dist directory path (default: 'dist')"
+        },
+        "project_type": {
+          "type": "string",
+          "description": "WebApps, Websites, Dashboards, Online Store, Games, Others"
+        }
+      },
+      "required": [
+        "dist_dir"
+      ]
+    }
+  },
+  "init_react_project": {
+    "name": "init_react_project",
+    "description": "Initialize a React project (Vite + React + TypeScript + TailwindCSS).\nAll dependencies are installed automatically.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project_name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "target_dir": {
+          "type": "string",
+          "description": "Target directory"
+        }
+      },
+      "required": [
+        "project_name",
+        "target_dir"
+      ]
+    }
+  },
+  "deploy_html_presentation": {
+    "name": "deploy_html_presentation",
+    "description": "Deploy a directory of individual HTML slide files as a unified presentation with navigation controls.\n\nThis tool validates image references, combines slide HTML files into a single presentation viewer HTML, and deploys it.\n\nRequirements:\n- slides_dir must be an absolute path containing slide HTML files and an optional imgs/ subdirectory\n- All images must be under an 'imgs/' subdirectory\n- Image references must use bare relative paths (e.g. 'imgs/photo.png'), NOT absolute or '../' paths\n- HTTP/HTTPS URLs and data URIs are allowed\n\nSlide ordering:\n- If html_files is provided, slides are ordered as listed\n- If omitted, all .html files are sorted by natural order (slide2.html < slide10.html)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "slides_dir": {
+          "type": "string",
+          "description": "Absolute path to the directory containing individual HTML slide files"
+        },
+        "html_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional ordered list of HTML slide filenames relative to slides_dir. If omitted, all .html files are used in natural sort order."
+        }
+      },
+      "required": [
+        "slides_dir"
+      ]
+    }
+  },
+  "upload_to_cdn": {
+    "name": "upload_to_cdn",
+    "description": "Upload a file to CDN and return the public CDN URL.\n\n**IMPORTANT: When sending files via messaging platforms (Telegram, Slack, etc.),\nyou MUST use this tool first to get a CDN URL.**\n\nLocal file paths are NOT accessible outside the agent environment.\nOnly CDN URLs can be accessed by external services.\n\nReturns:\n    cdn_url: Public CDN URL",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Absolute path to the file to upload"
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    }
+  }
+}
