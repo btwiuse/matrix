@@ -13,6 +13,14 @@
 | `TestProxyForwardsLowSideEffectTools` | proxy: get_voice_list / images_list / synthesize_speech 走真实 server,校验输出子串(不可达时 SKIP) | PASS |
 | `TestHTTPTransport` | HTTP: 起子进程 `-http` → go-sdk StreamableClientTransport 连接 → list+call(mock) | PASS |
 | `TestHTTPTransportProxyMode` | HTTP+proxy: `-mode proxy` 起子进程,list 22 工具 + get_voice_list 转发真实 server(不可达时 SKIP) | PASS |
+| `TestLocalDeployCopiesAssets` | LocalDeploy: dist 树完整拷贝到 data/<project>,输出 status/url/files 正确 | PASS |
+| `TestLocalDeployDefaultsProjectNameToDistBasename` | project_name 缺省 → 用 dist 目录 basename | PASS |
+| `TestLocalDeployRejectsPathTraversal` | project_name `../evil`/绝对路径/含分隔符 → error,且无文件逃逸 | PASS |
+| `TestLocalDeploySkipsDevDirsAndSymlinks` | node_modules/.git 不拷贝;指向树外符号链接跳过 | PASS |
+| `TestLocalDeployWarnsWithoutIndexHTML` | 无 index.html → warning 字段而非 error | PASS |
+| `TestLocalDeployMissingDist` | dist_dir 不存在 → tool error | PASS |
+| `TestLocalDeployReplacesPreviousRelease` | 重复部署同项目 → 旧文件清理(发布语义) | PASS |
+| `TestLocalDeployOtherToolsDelegate` | 其余工具经内嵌 Handler 委托,不受影响 | PASS |
 
 ## 真实 server 对比验证(2026-08-18)
 

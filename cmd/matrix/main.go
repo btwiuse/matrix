@@ -27,6 +27,7 @@ func main() {
 		mode    = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
 		addr    = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
 		timeout = flag.Duration("timeout", 5*time.Minute, "upstream request timeout for proxy mode")
+		dataDir = flag.String("data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
 	)
 	flag.Parse()
 
@@ -43,6 +44,10 @@ func main() {
 			handler = matrix.NewMockHandler()
 			log.Printf("no --url/--token given, using mock handler")
 		}
+	}
+	if *dataDir != "" {
+		handler = matrix.NewLocalDeploy(handler, *dataDir)
+		log.Printf("deploy writes assets under %s", *dataDir)
 	}
 
 	server, err := matrix.NewServer(handler)

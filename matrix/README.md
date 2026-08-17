@@ -17,6 +17,7 @@ backend (`DIFFS: 0`).
 | `server.go` | `mcp.Server` assembly; registers all 22 tools via `mcp.AddTool` |
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
+| `deploy.go` | `LocalDeploy`: local `deploy` that copies dist assets into `data/<project>` |
 | `cmd/matrix` | Entry point: stdio or streamable HTTP |
 
 ## Run
@@ -32,6 +33,9 @@ go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 
 # Streamable HTTP on :8080
 go run ./cmd/matrix -http :8080 -mode mock
+
+# Local deploy: dist assets are copied into ./data/<project>
+go run ./cmd/matrix -mode mock -data-dir ./data
 ```
 
 ## Flags
@@ -44,6 +48,7 @@ go run ./cmd/matrix -http :8080 -mode mock
 | `-source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
 | `-http` | empty | Address for streamable HTTP (e.g. `:8080`); empty = stdio |
 | `-timeout` | `5m` | Upstream request timeout (proxy mode) |
+| `-data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
 
 ## Verify
 
