@@ -11,6 +11,9 @@ Go monorepo with two components.
 go run ./cmd/inject-proxy --upstream http://127.0.0.1:8000 --port 8080 --inject ./inject-ball.html
 ```
 
+注入核心抽在 [`rewrite`](rewrite) 包(幂等、tokenizer 级重写),`htmlinject`
+与 `deploy-server --inject-html`(重写静态站点 index.html)共用同一实现。
+
 ## matrix — MiniMax matrix MCP 复刻
 
 基于 [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk)

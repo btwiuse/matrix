@@ -119,15 +119,19 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		return nil, toolErr("resolving dist_dir: %v", err)
 	}
 	if rel, err := filepath.Rel(d.cfg.WorkspaceDir, abs); err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		// The trailing slash after the workspace path mirrors the real
+		// server's wording verbatim ("under /workspace/").
 		return nil, toolErr(
-			"dist_dir must be a sub-directory under %s, e.g. '%s/dist' or '%s/build'. Got: '%s'. Note: '%s' itself is not accepted — please append a sub-path (your built output directory, typically '%s/dist').",
+			"dist_dir must be a sub-directory under %s/, e.g. '%s/dist' or '%s/build'. Got: '%s'. Note: '%s' itself is not accepted — please append a sub-path (your built output directory, typically '%s/dist').",
 			d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, abs, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
+		// The real server appends the file gateway's 404 detail to the
+		// message; locally the os.Stat failure is the equivalent detail.
 		return nil, toolError(map[string]string{
 			"error":   "dist directory does not exist",
-			"message": fmt.Sprintf("Please ensure that the directory %s exists and contains built files.", abs),
+			"message": fmt.Sprintf("Please ensure that the directory %s exists and contains built files. Error: %v", abs, err),
 		})
 	}
 	if !info.IsDir() {

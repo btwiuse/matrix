@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gearshell/inject-proxy/rewrite"
 )
 
 // writeSite creates dataDir/project/index.html (and optional extra files).
@@ -173,5 +175,141 @@ func TestSiteHandlerApexEmpty(t *testing.T) {
 	res := getHost(t, srv, "localhost", "/")
 	if body := readBody(t, res); res.StatusCode != http.StatusOK || !strings.Contains(body, "no sites deployed yet") {
 		t.Fatalf("empty apex: status %d body %q", res.StatusCode, body)
+	}
+}
+
+const rewriteSnippet = `<script src="/probe.js"></script>`
+
+func TestSiteHandlerRewritesIndexHTML(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>", "asset.txt")
+	if err := os.MkdirAll(filepath.Join(dir, "alpha", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "alpha", "sub", "index.html"), []byte("<p>sub</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(NewSiteHandlerWithInjector(dir, "localhost", rewrite.New(rewriteSnippet)))
+	t.Cleanup(srv.Close)
+
+	res := getHost(t, srv, "alpha.localhost", "/")
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("root index: status %d body %q", res.StatusCode, body)
+	}
+	if i, j := strings.Index(body, rewriteSnippet), strings.Index(body, "</body>"); i == -1 || i > j {
+		t.Fatalf("snippet must precede </body> (snippet@%d body@%d)", i, j)
+	}
+	res = getHost(t, srv, "alpha.localhost", "/sub/")
+	if body := readBody(t, res); res.StatusCode != http.StatusOK || !strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("nested index: status %d body %q", res.StatusCode, body)
+	}
+	// Non-HTML assets are served untouched.
+	res = getHost(t, srv, "alpha.localhost", "/asset.txt")
+	if body := readBody(t, res); res.StatusCode != http.StatusOK || body != "asset.txt" {
+		t.Fatalf("asset: status %d body %q", res.StatusCode, body)
+	}
+}
+
+func TestSiteHandlerRewriteIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+
+	srv := httptest.NewServer(NewSiteHandlerWithInjector(dir, "localhost", rewrite.New(rewriteSnippet)))
+	t.Cleanup(srv.Close)
+
+	first := readBody(t, getHost(t, srv, "alpha.localhost", "/"))
+	second := readBody(t, getHost(t, srv, "alpha.localhost", "/"))
+	if got := strings.Count(second, rewriteSnippet); got != 1 {
+		t.Fatalf("snippet appears %d times on second request, want 1 (idempotent rewrite)", got)
+	}
+	if first != second {
+		t.Fatal("rewritten page differs between requests")
+	}
+}
+
+func TestSiteHandlerNoRewriteWithoutInjector(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+
+	srv := httptest.NewServer(NewSiteHandler(dir, "localhost"))
+	t.Cleanup(srv.Close)
+
+	if body := readBody(t, getHost(t, srv, "alpha.localhost", "/")); strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("snippet injected without injector: %q", body)
+	}
+}
+
+func TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+	if err := os.WriteFile(filepath.Join(dir, "alpha", "about.html"), []byte("<p>about</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "alpha", "raw"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(NewSiteHandlerWithInjector(dir, "localhost", rewrite.New(rewriteSnippet)))
+	t.Cleanup(srv.Close)
+
+	// Plain .html pages are not rewritten, only index.html.
+	res := getHost(t, srv, "alpha.localhost", "/about.html")
+	if body := readBody(t, res); res.StatusCode != http.StatusOK || strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("about.html: status %d body %q", res.StatusCode, body)
+	}
+	// A directory without index.html keeps http.FileServer's listing.
+	res = getHost(t, srv, "alpha.localhost", "/raw/")
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK || strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("listing: status %d body %q", res.StatusCode, body)
+	}
+	// Explicit /index.html URLs keep FileServer's redirect to ./.
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/index.html", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "alpha.localhost"
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse // do not follow
+	}}
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusMovedPermanently {
+		t.Fatalf("explicit /index.html: status %d, want redirect", res.StatusCode)
+	}
+}
+
+func TestSiteHandlerRewriteHeadRequest(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+
+	srv := httptest.NewServer(NewSiteHandlerWithInjector(dir, "localhost", rewrite.New(rewriteSnippet)))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodHead, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "alpha.localhost"
+	res, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("HEAD: status %d", res.StatusCode)
+	}
+	// Content-Length reflects the rewritten page, the body is empty.
+	got := readBody(t, getHost(t, srv, "alpha.localhost", "/"))
+	if res.ContentLength != int64(len(got)) {
+		t.Fatalf("HEAD Content-Length = %d, want %d (rewritten body)", res.ContentLength, len(got))
+	}
+	if b, _ := io.ReadAll(res.Body); len(b) != 0 {
+		t.Fatalf("HEAD returned a body: %q", b)
 	}
 }

@@ -191,8 +191,8 @@ func TestLocalDeployMissingDist(t *testing.T) {
 	if body["error"] != "dist directory does not exist" {
 		t.Errorf("error = %v, want 'dist directory does not exist'", body["error"])
 	}
-	if body["message"] == nil {
-		t.Errorf("expected message key in error body, got %v", body)
+	if msg, _ := body["message"].(string); !strings.Contains(msg, "exists and contains built files. Error:") {
+		t.Errorf("message = %q, want file gateway style error detail", msg)
 	}
 }
 

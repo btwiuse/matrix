@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
+}
 
 func TestListenAddr(t *testing.T) {
 	cases := []struct {
@@ -36,5 +43,36 @@ func TestDefaultHTTPAddr(t *testing.T) {
 		if got := defaultHTTPAddr(); got != tc.want {
 			t.Errorf("defaultHTTPAddr(PORT=%q) = %q, want %q", tc.port, got, tc.want)
 		}
+	}
+}
+
+func TestLoadInjection(t *testing.T) {
+	file := t.TempDir() + "/snippet.html"
+	if err := writeFile(file, `<script src="/x.js"></script>`); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		file   string
+		inline string
+		want   string
+	}{
+		{"neither", "", "", ""},
+		{"inline only", "", "<p>hi</p>", "<p>hi</p>"},
+		{"file wins", file, "<p>inline</p>", `<script src="/x.js"></script>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := loadInjection(tc.file, tc.inline)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("loadInjection = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if _, err := loadInjection(file+".nope", ""); err == nil {
+		t.Error("missing inject file should error")
 	}
 }

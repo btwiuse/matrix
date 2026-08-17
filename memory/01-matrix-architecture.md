@@ -17,9 +17,15 @@
 │
 ├─ matrix/proxy.go       ProxyHandler: 把 tools/call 转发到真实 server(高保真行为)
 ├─ matrix/mock.go        MockHandler: 确定性本地响应(离线/测试用,输出形状仿真实)
+├─ matrix/deploy.go      LocalDeploy: 本地发布实现(复制到 data-dir/<随机 site-id>)
+├─ matrix/site.go        SiteHandler: 子域静态服务(<site>.<domain>/ → data-dir/<site>),
+│                        可选 index.html 重写(复用 rewrite 包,见 04 关键约定 4)
 │
 └─ matrix/schema.json    真实 server tools/list 的逐字抓取(go:embed 嵌入)
 ```
+
+deploy-server(`cmd/deploy-server/main.go`)与 matrix 同仓库部署闭环:
+deploy 写入 data-dir,deploy-server 按子域服务,`--inject/--inject-html` 开启 index.html 注入。
 
 ## 关键设计决策
 
@@ -29,8 +35,8 @@
    `-mode auto` 规则: 有 `--url`+`--token` → proxy,否则 mock。
 3. **输出透传**: 真实 server 的返回是 `content[0].text` 里的 JSON 字符串,
    复刻用 `Output = []byte` 原样透传,不做结构解析(结构解析放 client 侧)。
-4. **注册机制**: `register[In any]` 泛型 helper + 22 个 `regXxx` 函数显式绑定
-   类型→Handler 方法。新增工具 = schema.json + types.go + handler.go + regXxx + proxy/mock 方法。
+4. **注册机制**: `register[In any]` 泛型 helper + `reg1` 一行绑定
+   (Handler 方法指针 → 工具名,编译期保证 22 方法存在)。新增工具 = schema.json + types.go + handler.go + reg1 + proxy/mock 方法。
 5. **errors**: 工具执行错误经 `fmt.Errorf("%s: %w", spec.Name, err)` 返回,
    go-sdk 自动打成 tool error(IsError=true)而非 protocol error。
 

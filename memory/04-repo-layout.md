@@ -11,14 +11,17 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
 ├── main_test.go          # htmlinject 测试(含用户回归测试)
 ├── server.js             # Node 版参考实现(旧)
 ├── inject-ball.html      # 注入片段示例
+├── rewrite/              # rewrite 包: HTML 注入核心(幂等 tokenizer 重写)
+│   ├── rewrite.go        #   Injector: New(injection) + Inject(html) (string, bool)
+│   └── rewrite_test.go   #   注入测试(从根包移入)
 ├── cmd/
 │   ├── inject-proxy/     # cobra CLI: --upstream --port --inject/--inject-html
 │   ├── matrix/           # matrix MCP 复刻入口 (cobra CLI): --mode --url --token --http
-│   └── deploy-server/    # cobra CLI: 二级域名 site server (--data-dir --domain --http)
+│   └── deploy-server/    # cobra CLI: 二级域名 site server (--data-dir --domain --http --inject/--inject-html)
 ├── matrix/               # matrix 复刻库(独立包,非根包!)
 │   ├── schema.json       # 真实 server tools/list 抓取(go:embed)
-│   ├── types.go handler.go server.go proxy.go mock.go deploy.go
-│   └── server_test.go deploy_test.go
+│   ├── types.go handler.go server.go proxy.go mock.go deploy.go site.go
+│   └── server_test.go deploy_test.go site_test.go
 ├── test/                 # 手工测试文件
 ├── memory/               # 本知识库(见 README.md)
 └── README.md             # 仓库总览
@@ -37,8 +40,14 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
    ③ 成功输出形状 `{"website_id","website_url","screenshot_url"}`,`website_url` 暂为 `/data/<project>/`
    占位(http server 以后做);④ 错误走 `ToolError` → content 为 JSON 文本 + isError=true(register 已支持),
    与正式版一致;⑤ 无 index.html 不报 warning(实测正式版无 warning,尽管 schema 描述说有);
-   ⑥ 每次部署 website_id 递增(基准 431000000000000),同项目覆盖旧版本(本地无 CDN 版本化)。
+   ⑥ 每次部署 website_id 递增(基准 431000000000000),同项目覆盖旧版本(本地无 CDN 版本化);
+   ⑦ 措辞对齐: workspace 拒绝文案 `under <ws>/`(尾斜杠,逐字同正式版);缺 dist 的 message 追加
+   `Error: <os.Stat 错误>` 详情(正式版是 file gateway 404 详情,本地用等价物)。
    跳过 .git/node_modules/符号链接。
+4. **注入核心 = rewrite 包**(根包 htmlinject 的 Injector 是薄包装:内嵌 *rewrite.Injector + verbose);
+   `deploy-server --inject/--inject-html` 通过 `NewSiteHandlerWithInjector` 复用同一实现:
+   SiteHandler.injector 非 nil 时,只有"以 / 结尾且解析到目录 index.html"的请求被重写,
+   其余(显式 /index.html 的 FileServer 重定向、普通文件、无 index.html 的目录列表)原样走 FileServer。
 4. token/密钥一律不进 git:`matrix.env` 在 `/root/.config/crush/`,600 权限。
 5. 提交信息: 主题行 ≤72 字符,解释 why;署名 `Crush <crush@local>`。
 

@@ -9,9 +9,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +17,7 @@ import (
 	"net/url"
 	"strings"
 
-	htmlt "golang.org/x/net/html"
+	"github.com/gearshell/inject-proxy/rewrite"
 )
 
 // Config 描述注入代理的静态配置。
@@ -31,17 +28,15 @@ type Config struct {
 }
 
 // Injector 持有注入片段与其幂等标记,可对任意 HTML 执行注入。
+// 改写核心在 rewrite 包,这里仅附加代理侧的日志开关。
 type Injector struct {
-	marker    string
-	injection string
-	verbose   bool
+	*rewrite.Injector
+	verbose bool
 }
 
 // NewInjector 根据注入片段构造 Injector,幂等标记取内容哈希。
 func NewInjector(injection string, verbose bool) *Injector {
-	sum := sha256.Sum256([]byte(injection))
-	marker := fmt.Sprintf("<!-- html-inject:%s -->", hex.EncodeToString(sum[:])[:12])
-	return &Injector{marker: marker, injection: injection, verbose: verbose}
+	return &Injector{Injector: rewrite.New(injection), verbose: verbose}
 }
 
 // maybeDecompress 按首字节嗅探并解压。
@@ -76,41 +71,6 @@ func maybeDecompress(b []byte) ([]byte, string, error) {
 	}
 	// raw deflate(无头)难以可靠识别,交给上游 Content-Encoding,这里不再兜底
 	return b, "", nil
-}
-
-// Inject 把注入片段插到 html 中,返回改写结果与是否发生改写。
-// 位置优先级: </body> 前 > </html> 前 > 末尾。
-func (i *Injector) Inject(html string) (string, bool) {
-	if strings.Contains(html, i.marker) {
-		return html, false
-	}
-	var out strings.Builder
-	out.Grow(len(html) + len(i.injection) + 64)
-
-	z := htmlt.NewTokenizer(strings.NewReader(html))
-	inserted := false
-	for {
-		tt := z.Next()
-		if tt == htmlt.ErrorToken {
-			if errors.Is(z.Err(), io.EOF) {
-				break
-			}
-			// 流不可解析:原样放行,不冒险改写
-			return html, false
-		}
-		if tt == htmlt.EndTagToken && !inserted {
-			switch z.Token().Data {
-			case "body", "html":
-				out.WriteString("\n" + i.marker + "\n" + i.injection)
-				inserted = true
-			}
-		}
-		out.Write(z.Raw())
-	}
-	if !inserted {
-		out.WriteString("\n" + i.marker + "\n" + i.injection)
-	}
-	return out.String(), true
 }
 
 // ModifyResponse 实现 httputil.ReverseProxy 的响应改写钩子。

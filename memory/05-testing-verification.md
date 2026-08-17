@@ -16,9 +16,9 @@
 | `TestLocalDeployCopiesAssets` | LocalDeploy: dist 树完整拷贝到 data/<site-id>,输出 website_id/website_url/screenshot_url(与正式版同形状) | PASS |
 | `TestLocalDeployProjectNameDoesNotDetermineLocation` | project_name/dist basename 不决定发布位置(随机 site-id,同正式版) | PASS |
 | `TestLocalDeployRejectsPathTraversal` | project_name `../evil`/绝对路径/含分隔符 → tool error,且无文件逃逸 | PASS |
-| `TestLocalDeployRejectsDistOutsideWorkspace` | dist_dir 在 workspace 外 → 措辞同正式版的 tool error | PASS |
+| `TestLocalDeployRejectsDistOutsideWorkspace` | dist_dir 在 workspace 外 → 措辞同正式版的 tool error(`under <ws>/` 尾斜杠) | PASS |
 | `TestLocalDeployRejectsWorkspaceItself` | workspace 根本身不可用 → tool error | PASS |
-| `TestLocalDeployMissingDist` | dist 不存在 → `{"error":"dist directory does not exist","message":...}` | PASS |
+| `TestLocalDeployMissingDist` | dist 不存在 → `{"error":"dist directory does not exist","message":"...built files. Error: <stat 错误>"}`(message 含正式版同款 "Error:" 详情) | PASS |
 | `TestLocalDeployDefaultsDistDirToWorkspaceDist` | 缺 dist_dir → 默认 `<workspace>/dist` | PASS |
 | `TestLocalDeploySkipsDevDirsAndSymlinks` | node_modules/.git 不拷贝;指向树外符号链接跳过 | PASS |
 | `TestLocalDeployNoIndexHTMLSucceedsWithoutWarning` | 无 index.html → 成功且无 warning(对齐实测) | PASS |
@@ -26,6 +26,13 @@
 | `TestLocalDeployKeepsPreviousReleases` | 重复部署 → 每次新随机目录/URL,旧发布保留(对齐正式版每次新子域) | PASS |
 | `TestLocalDeployAbsoluteURLWithDomain` | 配置 Domain 后 website_url = http://<site-id>.<domain>/ | PASS |
 | `TestLocalDeployOtherToolsDelegate` | 其余工具经内嵌 Handler 委托,不受影响 | PASS |
+| rewrite 包: `TestInjectIdempotent` / `TestInjectFallbackAppend` / `TestInjectIgnoresLiteralTags` / `TestInjectPreservesFormat` | 注入核心(幂等、兜底追加、字面 `</body>` 不误插、逐字节保真),从根包移入 rewrite 包 | PASS |
+| `TestSiteHandlerRewritesIndexHTML` | deploy-server + injector: `/` 与 `/sub/` 的 index.html 被重写,snippet 在 `</body>` 前,非 HTML 资产不动 | PASS |
+| `TestSiteHandlerRewriteIsIdempotent` | 二次请求不重复注入,两次响应一致 | PASS |
+| `TestSiteHandlerNoRewriteWithoutInjector` | 未配 injector 时原样服务(旧行为) | PASS |
+| `TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone` | about.html 不重写;无 index.html 的目录仍走 FileServer 列表;显式 `/index.html` 仍是重定向 | PASS |
+| `TestSiteHandlerRewriteHeadRequest` | HEAD: 200, Content-Length = 重写后长度,空 body | PASS |
+| `TestLoadInjection` | deploy-server `--inject` 文件优先于 `--inject-html`;文件缺失报错 | PASS |
 
 ## 真实 server 对比验证(2026-08-18)
 

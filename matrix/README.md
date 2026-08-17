@@ -54,11 +54,20 @@ go run ./cmd/deploy-server --data-dir ./data --domain localhost --http :8080
 # Or let the environment pick the port (all servers honor $PORT):
 PORT=8080 go run ./cmd/deploy-server --data-dir ./data
 PORT=8080 go run ./cmd/matrix --mode mock   # serves HTTP; no $PORT = stdio
+
+# Rewrite every served index.html with a snippet (inject-proxy's HTML
+# injection, extracted into the reusable rewrite package):
+go run ./cmd/deploy-server --data-dir ./data --inject-html '<script src="/probe.js"></script>'
+go run ./cmd/deploy-server --data-dir ./data --inject ./inject-ball.html   # file form wins
 ```
 
 - `http://<site-id>.<domain>/` serves `data-dir/<site-id>/` (static files)
 - the bare apex (`http://localhost/`) lists all published sites
 - unknown sites, wrong domains and deeper subdomains are 404s
+- with `--inject`/`--inject-html`, requests that resolve to a directory's
+  `index.html` are served with the snippet injected before `</body>`
+  (idempotent; explicit `/index.html` URLs and other files behave exactly
+  like plain static serving)
 - run it alongside `cmd/matrix --data-dir <same-dir>` for the full
 deploy → serve loop (`*.localhost` resolves to loopback in modern
 browsers; for other domains point the wildcard DNS record at this host)
