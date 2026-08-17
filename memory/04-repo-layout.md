@@ -7,8 +7,8 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
 
 ```
 /workspace/html-inject-proxy/
-├── main.go               # htmlinject 包: HTML 注入反向代理库(tokenizer 版)
-├── main_test.go          # htmlinject 测试(含用户回归测试)
+├── htmlinject.go          # htmlinject 包: HTML 注入反向代理库(tokenizer 版;命名避开 main 惯例)
+├── htmlinject_test.go     # htmlinject 测试(含用户回归测试)
 ├── server.js             # Node 版参考实现(旧)
 ├── inject-ball.html      # 注入片段示例
 ├── rewrite/              # rewrite 包: HTML 注入核心(幂等 tokenizer 重写)

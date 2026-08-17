@@ -1,8 +1,8 @@
 // HTML 注入反向代理(Go 版):转发请求到上游,响应时把注入片段插到 </body> 前。
-// 用法:
+// 用法(CLI 见 cmd/inject-proxy):
 //
-//	go run main.go --upstream http://127.0.0.1:8000 --port 8080 --inject ./inject-ball.html
-//	go run main.go --upstream http://127.0.0.1:8000 --port 8080 --inject-html '<script src="/x.js"></script>'
+//	go run ./cmd/inject-proxy --upstream http://127.0.0.1:8000 --port 8080 --inject ./inject-ball.html
+//	go run ./cmd/inject-proxy --upstream http://127.0.0.1:8000 --port 8080 --inject-html '<script src="/x.js"></script>'
 package htmlinject
 
 import (
