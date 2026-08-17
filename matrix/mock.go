@@ -3,6 +3,8 @@ package matrix
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 )
 
 // MockHandler serves deterministic responses for every tool, so the replica
@@ -63,8 +65,16 @@ func (m *MockHandler) BatchTextToMusic(_ context.Context, in *BatchTextToMusicRe
 	return mockOutput(map[string]any{"status": "ok", "output_files": in.OutputFileList, "count": in.Count})
 }
 
+// SynthesizeSpeech mirrors the real server's output shape (CDN url fields
+// plus a completion message; there is no "status" key).
 func (m *MockHandler) SynthesizeSpeech(_ context.Context, in *SynthesizeSpeechRequest) (Output, error) {
-	return mockOutput(map[string]any{"status": "ok", "output_file": in.OutputFile})
+	return mockOutput(map[string]any{
+		"output_file": in.OutputFile,
+		"url":         "https://mock-cdn.example.com/audio/" + in.OutputFile,
+		"url_clean":   "https://mock-cdn.example.com/audio/clean_" + in.OutputFile,
+		"url_visible": "https://mock-cdn.example.com/audio/visible_" + in.OutputFile,
+		"message":     "Speech synthesis completed",
+	})
 }
 
 func (m *MockHandler) BatchSynthesizeSpeech(_ context.Context, in *BatchSynthesizeSpeechRequest) (Output, error) {
@@ -124,8 +134,31 @@ func (m *MockHandler) ImagesSearchAndDownload(_ context.Context, in *ImagesSearc
 	return mockOutput(map[string]any{"results": res})
 }
 
+// ImagesList mirrors the real server, which returns a markdown listing
+// (not JSON) of the workspace images, honoring start/number pagination.
 func (m *MockHandler) ImagesList(_ context.Context, in *ImagesListRequest) (Output, error) {
-	return mockOutput(map[string]any{"images": []string{"mock_0.png", "mock_1.png"}, "start": in.Start, "count": in.Number})
+	names := []string{
+		"profile.png", "og.png", "banner.png", "thumb.png", "hero.png",
+		"avatar.png", "logo.png", "screenshot.png", "cover.png", "icon.png", "favicon.png",
+	}
+	start := in.Start
+	if start < 0 {
+		start = 0
+	}
+	if start > len(names) {
+		start = len(names)
+	}
+	end := len(names)
+	if in.Number > 0 && start+in.Number < end {
+		end = start + in.Number
+	}
+	sel := names[start:end]
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Total Images: %d", len(sel))
+	for _, n := range sel {
+		fmt.Fprintf(&b, "\n\n## Image %s\nFile: %s\nPath: /workspace/%s\nFile Size: 1.0 KB", n, n, n)
+	}
+	return []byte(b.String()), nil
 }
 
 func (m *MockHandler) Deploy(_ context.Context, in *DeployRequest) (Output, error) {

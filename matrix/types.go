@@ -34,34 +34,34 @@ type GenVideosRequest struct {
 
 // BatchTextToVideoRequest is the input of batch_text_to_video.
 type BatchTextToVideoRequest struct {
-	Count           int      `json:"count"`
-	PromptList      []string `json:"prompt_list"`
-	OutputFileList  []string `json:"output_file_list"`
-	DurationList    []int    `json:"duration_list,omitempty"`
-	ResolutionList  []string `json:"resolution_list,omitempty"`
+	Count          int      `json:"count"`
+	PromptList     []string `json:"prompt_list"`
+	OutputFileList []string `json:"output_file_list"`
+	DurationList   []int    `json:"duration_list,omitempty"`
+	ResolutionList []string `json:"resolution_list,omitempty"`
 }
 
 // BatchImageToVideoRequest is the input of batch_image_to_video.
 type BatchImageToVideoRequest struct {
-	Count              int      `json:"count"`
-	ImageFileList      []string `json:"image_file_list"`
-	OutputFileList     []string `json:"output_file_list"`
-	PromptList         []string `json:"prompt_list,omitempty"`
-	ReferenceTypeList  []string `json:"reference_type_list,omitempty"`
-	DurationList       []int    `json:"duration_list,omitempty"`
-	ResolutionList     []string `json:"resolution_list,omitempty"`
+	Count             int      `json:"count"`
+	ImageFileList     []string `json:"image_file_list"`
+	OutputFileList    []string `json:"output_file_list"`
+	PromptList        []string `json:"prompt_list,omitempty"`
+	ReferenceTypeList []string `json:"reference_type_list,omitempty"`
+	DurationList      []int    `json:"duration_list,omitempty"`
+	ResolutionList    []string `json:"resolution_list,omitempty"`
 }
 
 // BatchTextToAudioRequest is the input of batch_text_to_audio.
 type BatchTextToAudioRequest struct {
-	Count          int      `json:"count"`
-	TextList       []string `json:"text_list"`
-	OutputFileList []string `json:"output_file_list"`
+	Count          int       `json:"count"`
+	TextList       []string  `json:"text_list"`
+	OutputFileList []string  `json:"output_file_list"`
 	SpeedList      []float64 `json:"speed_list,omitempty"`
 	VolumeList     []float64 `json:"volume_list,omitempty"`
 	PitchList      []float64 `json:"pitch_list,omitempty"`
-	VoiceList      []string `json:"voice_list,omitempty"`
-	EmotionList    []string `json:"emotion_list,omitempty"`
+	VoiceList      []string  `json:"voice_list,omitempty"`
+	EmotionList    []string  `json:"emotion_list,omitempty"`
 }
 
 // BatchTextToMusicRequest is the input of batch_text_to_music.
@@ -87,13 +87,13 @@ type SynthesizeSpeechRequest struct {
 
 // BatchSynthesizeSpeechRequest is the input of batch_synthesize_speech.
 type BatchSynthesizeSpeechRequest struct {
-	Count          int      `json:"count"`
-	TextList       []string `json:"text_list"`
-	OutputFileList []string `json:"output_file_list"`
-	VoiceIDList    []string `json:"voice_id_list,omitempty"`
+	Count          int       `json:"count"`
+	TextList       []string  `json:"text_list"`
+	OutputFileList []string  `json:"output_file_list"`
+	VoiceIDList    []string  `json:"voice_id_list,omitempty"`
 	SpeedList      []float64 `json:"speed_list,omitempty"`
 	VolumeList     []float64 `json:"volume_list,omitempty"`
-	PitchList      []int    `json:"pitch_list,omitempty"`
+	PitchList      []int     `json:"pitch_list,omitempty"`
 }
 
 // ListenAudioRequest is the input of listen_audio.

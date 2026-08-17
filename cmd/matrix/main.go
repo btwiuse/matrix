@@ -21,11 +21,11 @@ import (
 
 func main() {
 	var (
-		url    = flag.String("url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
-		token  = flag.String("token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
-		source = flag.String("source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
-		mode   = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
-		addr   = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
+		url     = flag.String("url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
+		token   = flag.String("token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
+		source  = flag.String("source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
+		mode    = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
+		addr    = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
 		timeout = flag.Duration("timeout", 5*time.Minute, "upstream request timeout for proxy mode")
 	)
 	flag.Parse()
