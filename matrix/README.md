@@ -48,6 +48,10 @@ second-level domain.
 ```sh
 # Serve ./data at http://<project>.localhost/ (apex lists all sites)
 go run ./cmd/deploy-server --data-dir ./data --domain localhost --http :8080
+
+# Or let the environment pick the port (all servers honor $PORT):
+PORT=8080 go run ./cmd/deploy-server --data-dir ./data
+PORT=8080 go run ./cmd/matrix --mode mock   # serves HTTP; no $PORT = stdio
 ```
 
 - `http://<project>.<domain>/` serves `data-dir/<project>/` (static files)
@@ -66,7 +70,7 @@ browsers; for other domains point the wildcard DNS record at this host)
 | `--url` | `$MATRIX_URL` | Real matrix MCP HTTP endpoint |
 | `--token` | `$MATRIX_SK` | `?sk=` token |
 | `--source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
-| `--http` | empty | Address for streamable HTTP (e.g. `:8080`); empty = stdio |
+| `--http` | empty | Address for streamable HTTP (e.g. `:8080`); defaults to `$PORT`, empty = stdio |
 | `--timeout` | `5m` | Upstream request timeout (proxy mode) |
 | `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
 | `--workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |

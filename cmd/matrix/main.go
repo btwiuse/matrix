@@ -11,8 +11,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gearshell/inject-proxy/matrix"
@@ -76,6 +79,11 @@ func main() {
 			}
 
 			ctx := context.Background()
+			// An explicit --http wins; otherwise honor $PORT. An empty $PORT
+			// (or an unparseable one) keeps the stdio entry point.
+			if addr == "" && !cmd.Flags().Changed("http") {
+				addr = listenAddr(os.Getenv("PORT"))
+			}
 			if addr != "" {
 				opts := &mcp.StreamableHTTPOptions{Stateless: true}
 				h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
@@ -91,7 +99,7 @@ func main() {
 	root.Flags().StringVar(&token, "token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
 	root.Flags().StringVar(&source, "source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
 	root.Flags().StringVar(&mode, "mode", "auto", "handler mode: auto | proxy | mock")
-	root.Flags().StringVar(&addr, "http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
+	root.Flags().StringVar(&addr, "http", "", "if set, serve streamable HTTP on this address (e.g. :8080); defaults to $PORT, empty = stdio")
 	root.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "upstream request timeout for proxy mode")
 	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
 	root.Flags().StringVar(&workspaceDir, "workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
@@ -119,4 +127,23 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// listenAddr normalizes a PORT-style value into a ListenAndServe address:
+// "8080" -> ":8080", ":8080" -> ":8080", "127.0.0.1:9000" -> unchanged.
+// It returns "" for empty or unrecognized values.
+func listenAddr(p string) string {
+	if p == "" {
+		return ""
+	}
+	if strings.HasPrefix(p, ":") {
+		return p
+	}
+	if _, err := strconv.Atoi(p); err == nil {
+		return ":" + p
+	}
+	if _, _, err := net.SplitHostPort(p); err == nil {
+		return p
+	}
+	return ""
 }

@@ -7,8 +7,11 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/gearshell/inject-proxy/matrix"
 	"github.com/spf13/cobra"
@@ -39,7 +42,7 @@ func main() {
 
 	root.Flags().StringVar(&dataDir, "data-dir", envOr("MATRIX_DATA_DIR", "./data"), "deploy data directory (default $MATRIX_DATA_DIR or ./data)")
 	root.Flags().StringVar(&domain, "domain", envOr("MATRIX_DOMAIN", "localhost"), "apex domain for project subdomains (default $MATRIX_DOMAIN or localhost)")
-	root.Flags().StringVar(&addr, "http", ":8080", "listen address")
+	root.Flags().StringVar(&addr, "http", defaultHTTPAddr(), "listen address (default $PORT or :8080)")
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)
@@ -51,4 +54,32 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// defaultHTTPAddr returns the listen address: $PORT when set and
+// parseable, otherwise :8080.
+func defaultHTTPAddr() string {
+	if a := listenAddr(os.Getenv("PORT")); a != "" {
+		return a
+	}
+	return ":8080"
+}
+
+// listenAddr normalizes a PORT-style value into a ListenAndServe address:
+// "8080" -> ":8080", ":8080" -> ":8080", "127.0.0.1:9000" -> unchanged.
+// It returns "" for empty or unrecognized values.
+func listenAddr(p string) string {
+	if p == "" {
+		return ""
+	}
+	if strings.HasPrefix(p, ":") {
+		return p
+	}
+	if _, err := strconv.Atoi(p); err == nil {
+		return ":" + p
+	}
+	if _, _, err := net.SplitHostPort(p); err == nil {
+		return p
+	}
+	return ""
 }
