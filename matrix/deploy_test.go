@@ -59,6 +59,23 @@ func deployOutput(t *testing.T, out matrix.Output) map[string]any {
 	return body
 }
 
+// deploySiteID extracts the random site id embedded in website_url, for
+// either the relative /data/<id>/ or the absolute http://<id>.<domain>/ form.
+func deploySiteID(t *testing.T, body map[string]any) string {
+	t.Helper()
+	u, _ := body["website_url"].(string)
+	for _, p := range strings.Split(u, "/") {
+		if p != "" && p != "data" && p != "http:" {
+			if i := strings.IndexByte(p, '.'); i > 0 {
+				return p[:i]
+			}
+			return p
+		}
+	}
+	t.Fatalf("no site id in website_url %q", u)
+	return ""
+}
+
 // deployErr asserts the returned error is a JSON tool error and returns its
 // parsed body.
 func deployErr(t *testing.T, err error) map[string]any {
@@ -94,8 +111,8 @@ func TestLocalDeployCopiesAssets(t *testing.T) {
 	if _, ok := body["website_id"].(float64); !ok {
 		t.Errorf("website_id = %v (%T), want number", body["website_id"], body["website_id"])
 	}
-	if url := body["website_url"]; url != "/data/myapp/" {
-		t.Errorf("website_url = %v, want /data/myapp/", url)
+	if url, _ := body["website_url"].(string); !strings.HasPrefix(url, "/data/") || !strings.HasSuffix(url, "/") {
+		t.Errorf("website_url = %v, want /data/<site-id>/", url)
 	}
 	if ss := body["screenshot_url"]; ss != "" {
 		t.Errorf("screenshot_url = %v, want empty", ss)
@@ -106,7 +123,7 @@ func TestLocalDeployCopiesAssets(t *testing.T) {
 		}
 	}
 
-	target := data + "/myapp"
+	target := data + "/" + deploySiteID(t, body)
 	if readFile(t, target+"/index.html") != "<h1>hello</h1>" {
 		t.Errorf("index.html content mismatch")
 	}
@@ -118,7 +135,7 @@ func TestLocalDeployCopiesAssets(t *testing.T) {
 	}
 }
 
-func TestLocalDeployDefaultsProjectNameToDistBasename(t *testing.T) {
+func TestLocalDeployProjectNameDoesNotDetermineLocation(t *testing.T) {
 	h, ws, data := newTestDeploy(t)
 	dist := ws + "/my-dist"
 	writeTree(t, dist, map[string]string{"index.html": "x"})
@@ -127,8 +144,14 @@ func TestLocalDeployDefaultsProjectNameToDistBasename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	if _, err := os.Stat(data + "/my-dist/index.html"); err != nil {
-		t.Errorf("asset not at data/my-dist: %v", err)
+	body := deployOutput(t, out)
+	// Like the real server, the published location is a random site id, not
+	// the dist basename or project name.
+	if url, _ := body["website_url"].(string); strings.Contains(url, "my-dist") {
+		t.Errorf("website_url %q must not contain the dist basename", url)
+	}
+	if _, err := os.Stat(data + "/" + deploySiteID(t, body) + "/index.html"); err != nil {
+		t.Errorf("asset not under the site id dir: %v", err)
 	}
 	if ss := deployOutput(t, out)["screenshot_url"]; ss != "" {
 		t.Errorf("screenshot_url = %v, want empty", ss)
@@ -223,13 +246,14 @@ func TestLocalDeploySkipsDevDirsAndSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+	out, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app",
 		DistDir:     dist,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	target := data + "/app"
+	target := data + "/" + deploySiteID(t, deployOutput(t, out))
 	if _, err := os.Stat(target + "/node_modules"); !os.IsNotExist(err) {
 		t.Errorf("node_modules was copied (err=%v)", err)
 	}
@@ -267,31 +291,70 @@ func TestLocalDeployNoIndexHTMLSucceedsWithoutWarning(t *testing.T) {
 	}
 }
 
-func TestLocalDeployReplacesPreviousRelease(t *testing.T) {
+func TestLocalDeployKeepsPreviousReleases(t *testing.T) {
 	h, ws, data := newTestDeploy(t)
 
 	dist1 := ws + "/app-v1"
 	writeTree(t, dist1, map[string]string{"index.html": "v1", "old.txt": "stale"})
-	if _, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+	out1, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app", DistDir: dist1,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("deploy v1: %v", err)
 	}
 
 	dist2 := ws + "/app-v2"
 	writeTree(t, dist2, map[string]string{"index.html": "v2"})
-	if _, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+	out2, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app", DistDir: dist2,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("deploy v2: %v", err)
 	}
 
-	target := data + "/app"
-	if readFile(t, target+"/index.html") != "v2" {
-		t.Errorf("index.html = %q, want v2", readFile(t, target+"/index.html"))
+	// Like the real server, every deployment publishes a fresh site: the
+	// previous release stays, the new one gets its own directory and URL.
+	id1 := deploySiteID(t, deployOutput(t, out1))
+	id2 := deploySiteID(t, deployOutput(t, out2))
+	if id1 == id2 {
+		t.Errorf("second deployment reused site id %q, want a fresh one", id1)
 	}
-	if _, err := os.Stat(target + "/old.txt"); !os.IsNotExist(err) {
-		t.Errorf("old.txt from previous release still present (err=%v)", err)
+	if readFile(t, data+"/"+id1+"/index.html") != "v1" {
+		t.Errorf("v1 release lost: index.html = %q", readFile(t, data+"/"+id1+"/index.html"))
+	}
+	if readFile(t, data+"/"+id2+"/index.html") != "v2" {
+		t.Errorf("v2 release missing: index.html = %q", readFile(t, data+"/"+id2+"/index.html"))
+	}
+}
+
+func TestLocalDeployAbsoluteURLWithDomain(t *testing.T) {
+	root := t.TempDir()
+	ws := root + "/workspace"
+	data := root + "/data"
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), matrix.DeployConfig{
+		DataDir:      data,
+		WorkspaceDir: ws,
+		Domain:       "localhost",
+	})
+	dist := ws + "/app"
+	writeTree(t, dist, map[string]string{"index.html": "x"})
+
+	out, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+		ProjectName: "app", DistDir: dist,
+	})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	body := deployOutput(t, out)
+	id := deploySiteID(t, body)
+	if url, _ := body["website_url"].(string); url != "http://"+id+".localhost/" {
+		t.Errorf("website_url = %v, want http://%s.localhost/", url, id)
+	}
+	if _, err := os.Stat(data + "/" + id + "/index.html"); err != nil {
+		t.Errorf("assets not under %s: %v", data+"/"+id, err)
 	}
 }
 

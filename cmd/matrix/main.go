@@ -33,6 +33,7 @@ func main() {
 		timeout      time.Duration
 		dataDir      string
 		workspaceDir string
+		domain       string
 	)
 
 	root := &cobra.Command{
@@ -69,6 +70,7 @@ func main() {
 				handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{
 					DataDir:      dataDir,
 					WorkspaceDir: workspaceDir,
+					Domain:       domain,
 				})
 				log.Printf("deploy writes assets under %s (workspace %s)", dataDir, workspaceDir)
 			}
@@ -103,6 +105,7 @@ func main() {
 	root.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "upstream request timeout for proxy mode")
 	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
 	root.Flags().StringVar(&workspaceDir, "workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
+	root.Flags().StringVar(&domain, "domain", os.Getenv("MATRIX_DOMAIN"), "apex domain for deploy website_url subdomains (default $MATRIX_DOMAIN; empty = relative /data/<site>/ URL)")
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)

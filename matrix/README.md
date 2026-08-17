@@ -17,7 +17,7 @@ backend (`DIFFS: 0`).
 | `server.go` | `mcp.Server` assembly; registers all 22 tools via `mcp.AddTool` |
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
-| `deploy.go` | `LocalDeploy`: local `deploy` that copies dist assets into `data/<project>` |
+| `deploy.go` | `LocalDeploy`: local `deploy`; each deployment publishes a fresh random-id directory under `data/<site-id>` (previous releases kept, like the real server) |
 | `site.go` | `SiteHandler`: serves `data/<project>` at `http://<project>.<domain>/` |
 | `cmd/matrix` | Entry point (cobra CLI): stdio or streamable HTTP |
 | `cmd/deploy-server` | Site server (cobra CLI): subdomain hosting for deployed sites |
@@ -36,13 +36,15 @@ go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 # Streamable HTTP on :8080
 go run ./cmd/matrix --http :8080 --mode mock
 
-# Local deploy: dist assets are copied into ./data/<project>
-go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace
+# Local deploy: every deployment publishes a fresh random-id site under ./data
+# (--domain makes website_url an absolute http://<site-id>.<domain>/ URL)
+go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace --domain localhost
 ```
 
 ## Site server (deploy-server)
 
-Serves what `deploy` wrote into `--data-dir`: each project becomes a
+Serves what `deploy` wrote into `--data-dir`: each published site
+(a random id, like the real server's per-deployment subdomain) becomes a
 second-level domain.
 
 ```sh
@@ -54,9 +56,9 @@ PORT=8080 go run ./cmd/deploy-server --data-dir ./data
 PORT=8080 go run ./cmd/matrix --mode mock   # serves HTTP; no $PORT = stdio
 ```
 
-- `http://<project>.<domain>/` serves `data-dir/<project>/` (static files)
-- the bare apex (`http://localhost/`) lists the deployed projects
-- unknown projects, wrong domains and deeper subdomains are 404s
+- `http://<site-id>.<domain>/` serves `data-dir/<site-id>/` (static files)
+- the bare apex (`http://localhost/`) lists all published sites
+- unknown sites, wrong domains and deeper subdomains are 404s
 - run it alongside `cmd/matrix --data-dir <same-dir>` for the full
 deploy → serve loop (`*.localhost` resolves to loopback in modern
 browsers; for other domains point the wildcard DNS record at this host)
@@ -72,8 +74,9 @@ browsers; for other domains point the wildcard DNS record at this host)
 | `--source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
 | `--http` | empty | Address for streamable HTTP (e.g. `:8080`); defaults to `$PORT`, empty = stdio |
 | `--timeout` | `5m` | Upstream request timeout (proxy mode) |
-| `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
+| `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<random-id>` locally (a fresh site per deployment, mirroring the real server) instead of forwarding/mocking; `deploy-server` serves it |
 | `--workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |
+| `--domain` | `$MATRIX_DOMAIN` | Apex domain for deploy `website_url` subdomains; empty = relative `/data/<site-id>/` URL |
 
 ## Verify
 

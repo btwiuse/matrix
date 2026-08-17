@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,19 +30,25 @@ func toolError(v any) error {
 // DeployConfig configures the local deploy implementation.
 type DeployConfig struct {
 	// DataDir is the root directory that deployed assets are copied into,
-	// one subdirectory per project.
+	// one subdirectory per published site.
 	DataDir string
 	// WorkspaceDir is the sandbox root: dist_dir must be a sub-directory of
 	// it, mirroring the real server's /workspace requirement.
 	WorkspaceDir string
+	// Domain, when set, makes website_url an absolute http://<site>.<domain>/
+	// URL (like the real server's per-deployment subdomain) instead of the
+	// relative /data/<site>/ path.
+	Domain string
 }
 
 // LocalDeploy implements deploy locally with the same contract as the real
 // matrix server: dist_dir must live under the workspace, and the result is
 // {"website_id", "website_url", "screenshot_url"}. Instead of uploading to a
-// CDN it copies the assets into DataDir/<project>; the website_url is the
-// "/data/<project>/" path a future HTTP server over the data directory will
-// serve.
+// CDN it copies the assets into a fresh DataDir/<random-id> directory per
+// deployment, mirroring the real server's per-deployment random subdomain:
+// previous releases are kept, never overwritten. website_url is either the
+// relative "/data/<random-id>/" path or, when a Domain is configured,
+// "http://<random-id>.<domain>/".
 //
 // Every other tool is delegated to the wrapped Handler, so LocalDeploy can
 // wrap a mock or a proxy handler without duplicating the other 21 tools.
@@ -63,6 +70,19 @@ func NewLocalDeploy(h Handler, cfg DeployConfig) *LocalDeploy {
 // server's website ids (15 digits).
 const websiteIDBase = int64(431000000000000)
 
+// siteIDChars mirrors the charset of the real server's random subdomains.
+const siteIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// newSiteID returns a random lowercase alphanumeric id like the one the
+// real server embeds in each deployment's website_url.
+func newSiteID(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = siteIDChars[rand.IntN(len(siteIDChars))]
+	}
+	return string(b)
+}
+
 // ignoredDirs are development directories skipped during deployment,
 // matching the real server's behavior described in the deploy tool schema
 // (".git, node_modules, etc. are automatically ignored").
@@ -74,11 +94,12 @@ var ignoredDirs = map[string]bool{
 	"__pycache__":  true,
 }
 
-// Deploy copies the dist directory into DataDir/<project>, replacing any
-// previous release of the same project. The contract mirrors the real tool,
-// verified against the live server: dist_dir defaults to <workspace>/dist,
-// paths outside the workspace are rejected, missing dist yields the same
-// JSON error shape, and a missing index.html does not produce a warning.
+// Deploy copies the dist directory into a fresh DataDir/<random-id>
+// directory, one per deployment, mirroring the real server's per-deployment
+// random subdomain. The contract otherwise mirrors the real tool, verified
+// against the live server: dist_dir defaults to <workspace>/dist, paths
+// outside the workspace are rejected, missing dist yields the same JSON
+// error shape, and a missing index.html does not produce a warning.
 func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, error) {
 	if in == nil {
 		return nil, toolError(map[string]string{"error": "nil request"})
@@ -108,37 +129,37 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		return nil, toolError(map[string]string{"error": fmt.Sprintf("dist_dir %s is not a directory", abs)})
 	}
 
-	name := in.ProjectName
-	if name == "" {
-		name = filepath.Base(abs)
-	}
-	if !validDirName(name) {
+	// project_name is validated but, like on the real server, does not
+	// determine the published location.
+	if name := in.ProjectName; name != "" && !validDirName(name) {
 		return nil, toolError(map[string]string{"error": fmt.Sprintf("invalid project_name %q", name)})
 	}
 	if d.cfg.DataDir == "" {
 		return nil, toolError(map[string]string{"error": "data dir not configured"})
 	}
-	target := filepath.Join(d.cfg.DataDir, name)
-
-	// Deploying publishes a new release: clear the previous one so files
-	// removed from the dist do not linger.
-	if err := os.RemoveAll(target); err != nil {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("clearing %s: %v", target, err)})
-	}
+	// Publishing a site is append-only, like the real server: every
+	// deployment gets its own directory and URL, previous releases stay.
+	site := newSiteID(12)
+	target := filepath.Join(d.cfg.DataDir, site)
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return nil, toolError(map[string]string{"error": fmt.Sprintf("creating %s: %v", target, err)})
 	}
 	st := copyStats{}
 	if err := copyTree(abs, target, &st); err != nil {
+		os.RemoveAll(target)
 		return nil, toolError(map[string]string{"error": fmt.Sprintf("copying %s: %v", abs, err)})
 	}
 
 	id := atomic.AddInt64(&d.seq, 1) + websiteIDBase
-	// website_url is the "/data/<project>/" path the future data HTTP
-	// server will serve; swap in the absolute URL once that exists.
+	// website_url mirrors the real server's per-deployment URL: the site id
+	// becomes the subdomain, or the path when no domain is configured.
+	url := "/data/" + site + "/"
+	if d.cfg.Domain != "" {
+		url = "http://" + site + "." + d.cfg.Domain + "/"
+	}
 	return json.Marshal(map[string]any{
 		"website_id":     id,
-		"website_url":    "/data/" + name + "/",
+		"website_url":    url,
 		"screenshot_url": "",
 	})
 }
