@@ -6,10 +6,15 @@
 ## 分层
 
 ```
-┌─ cmd/matrix/main.go   入口 (cobra CLI): --mode auto|proxy|mock, stdio 或 streamable HTTP
+┌─ cmd/matrix/main.go   唯一入口 (cobra CLI): --mode auto|proxy|mock,
+│                       streamable HTTP(默认 :8080 / $PORT),单一监听端口
 │
 ├─ matrix/server.go      go-sdk server 组装: LoadSpecs() 读嵌入 schema.json,
 │                        registerAll() 用 mcp.AddTool 注册全部 22 工具
+│
+├─ matrix/router.go      Router: 按 Host 路由 — 站点命名空间(<site>.<domain> 与
+│                        apex 的 "/")走 SiteHandler,其余(监听地址、apex 非根路径、
+│                        未知 Host)走 MCP 端点
 │
 ├─ matrix/handler.go     Handler 接口(22 方法,每工具一个)+ Output = []byte(原始 JSON)
 │
@@ -24,8 +29,9 @@
 └─ matrix/schema.json    真实 server tools/list 的逐字抓取(go:embed 嵌入)
 ```
 
-deploy-server(`cmd/deploy-server/main.go`)与 matrix 同仓库部署闭环:
-deploy 写入 data-dir,deploy-server 按子域服务,`--inject/--inject-html` 开启 index.html 注入。
+deploy 与站点托管在同一个进程:`--data-dir` 开启后 router 按 Host 派发,
+MCP 端点与站点共用监听端口(详见 `matrix/README.md` 的 Site hosting 一节)。
+无 --data-dir 时纯 MCP(与旧行为一致,deploy 转发/模拟)。
 
 ## 关键设计决策
 
@@ -43,9 +49,9 @@ deploy 写入 data-dir,deploy-server 按子域服务,`--inject/--inject-html` �
 ## 入口参数
 
 ```sh
-go run ./cmd/matrix --mode mock                                  # 离线确定性
-go run ./cmd/matrix --http :8080 --mode mock                     # streamable HTTP
+go run ./cmd/matrix --mode mock                                  # 离线确定性,HTTP :8080($PORT 优先)
 MATRIX_URL=... MATRIX_SK=... go run ./cmd/matrix               # auto→proxy
+go run ./cmd/matrix --data-dir ./data --domain localhost        # + 站点托管(Host 路由)
 ```
 
 详见 `matrix/README.md`。

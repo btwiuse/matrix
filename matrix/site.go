@@ -49,6 +49,9 @@ func NewSiteHandlerWithInjector(dataDir, domain string, inj *rewrite.Injector) *
 	return &SiteHandler{dataDir: dataDir, domain: strings.ToLower(domain), injector: inj}
 }
 
+// Domain returns the normalized apex domain this handler routes on.
+func (s *SiteHandler) Domain() string { return s.domain }
+
 // ServeHTTP routes by Host: <project>.<domain> serves that project's
 // directory; the bare domain serves a listing of all deployed projects;
 // anything else is a 404.

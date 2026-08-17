@@ -4,11 +4,11 @@
 
 | 测试 | 覆盖路径 | 状态 |
 |---|---|---|
-| `TestToolsList` | stdio: tools/list 22 工具 + 每 schema 是 object + 与嵌入 schema 对齐 | PASS |
-| `TestCallToolAllTools` | stdio: table-driven 遍历全部 22 工具,最小合法参数各调一次,断言输出可解析 + 期望键/子串 | PASS |
-| `TestCallToolBatchWebSearch` | stdio: 调用 + JSON 输出含 `results` 键(mock) | PASS |
-| `TestCallToolGetVoiceList` | stdio: 无参工具调用 + `available_voices` 键 | PASS |
-| `TestCallToolRejectsInvalidInput` | stdio: 缺 required 字段 → IsError 而非 panic | PASS |
+| `TestToolsList` | HTTP(子进程): tools/list 22 工具 + 每 schema 是 object + 与嵌入 schema 对齐 | PASS |
+| `TestCallToolAllTools` | HTTP: table-driven 遍历全部 22 工具,最小合法参数各调一次,断言输出可解析 + 期望键/子串 | PASS |
+| `TestCallToolBatchWebSearch` | HTTP: 调用 + JSON 输出含 `results` 键(mock) | PASS |
+| `TestCallToolGetVoiceList` | HTTP: 无参工具调用 + `available_voices` 键 | PASS |
+| `TestCallToolRejectsInvalidInput` | HTTP: 缺 required 字段 → IsError 而非 panic | PASS |
 | `TestProxyHandlerForwardsToRealServer` | proxy: 转发到真实 server 取回真实 voices(不可达时 SKIP) | PASS |
 | `TestProxyForwardsLowSideEffectTools` | proxy: get_voice_list / images_list / synthesize_speech 走真实 server,校验输出子串(不可达时 SKIP) | PASS |
 | `TestHTTPTransport` | HTTP: 起子进程 `-http` → go-sdk StreamableClientTransport 连接 → list+call(mock) | PASS |
@@ -27,12 +27,14 @@
 | `TestLocalDeployAbsoluteURLWithDomain` | 配置 Domain 后 website_url = http://<site-id>.<domain>/ | PASS |
 | `TestLocalDeployOtherToolsDelegate` | 其余工具经内嵌 Handler 委托,不受影响 | PASS |
 | rewrite 包: `TestInjectIdempotent` / `TestInjectFallbackAppend` / `TestInjectIgnoresLiteralTags` / `TestInjectPreservesFormat` | 注入核心(幂等、兜底追加、字面 `</body>` 不误插、逐字节保真),从根包移入 rewrite 包 | PASS |
-| `TestSiteHandlerRewritesIndexHTML` | deploy-server + injector: `/` 与 `/sub/` 的 index.html 被重写,snippet 在 `</body>` 前,非 HTML 资产不动 | PASS |
+| `TestSiteHandlerRewritesIndexHTML` | SiteHandler + injector: `/` 与 `/sub/` 的 index.html 被重写,snippet 在 `</body>` 前,非 HTML 资产不动 | PASS |
 | `TestSiteHandlerRewriteIsIdempotent` | 二次请求不重复注入,两次响应一致 | PASS |
 | `TestSiteHandlerNoRewriteWithoutInjector` | 未配 injector 时原样服务(旧行为) | PASS |
 | `TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone` | about.html 不重写;无 index.html 的目录仍走 FileServer 列表;显式 `/index.html` 仍是重定向 | PASS |
 | `TestSiteHandlerRewriteHeadRequest` | HEAD: 200, Content-Length = 重写后长度,空 body | PASS |
-| `TestLoadInjection` | deploy-server `--inject` 文件优先于 `--inject-html`;文件缺失报错 | PASS |
+| `TestRouterDispatch` | Router 单测: 子域/apex 列表 → 站点;监听地址/apex 非根路径/未知 Host → MCP;大小写与端口不敏感 | PASS |
+| `TestHTTPHostRouting` | e2e 合并后单进程: 经 MCP deploy → 按 website_url 子域取回站点(含注入 snippet)、apex 列表、站点子域上的 MCP 路径 404 | PASS |
+| `TestLoadInjection` | `--inject` 文件优先于 `--inject-html`;文件缺失报错 | PASS |
 
 ## 真实 server 对比验证(2026-08-18)
 

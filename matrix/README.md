@@ -18,14 +18,15 @@ backend (`DIFFS: 0`).
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
 | `deploy.go` | `LocalDeploy`: local `deploy`; each deployment publishes a fresh random-id directory under `data/<site-id>` (previous releases kept, like the real server) |
-| `site.go` | `SiteHandler`: serves `data/<project>` at `http://<project>.<domain>/` |
-| `cmd/matrix` | Entry point (cobra CLI): stdio or streamable HTTP |
-| `cmd/deploy-server` | Site server (cobra CLI): subdomain hosting for deployed sites |
+| `site.go` | `SiteHandler`: serves `data/<project>` at `http://<project>.<domain>/` (optional index.html rewrite) |
+| `router.go` | `Router`: dispatches by Host — site subdomains vs the MCP endpoint |
+| `cmd/matrix` | Single entry point (cobra CLI): MCP + site hosting on one HTTP listener |
+| `rewrite/` | Shared HTML injection core (also used by inject-proxy) |
 
 ## Run
 
 ```sh
-# Mock mode (offline, deterministic)
+# Mock mode (offline, deterministic) — HTTP on :8080 ($PORT honored)
 go run ./cmd/matrix --mode mock
 
 # Proxy mode: forward to the real matrix server (high fidelity)
@@ -33,44 +34,35 @@ MATRIX_URL=http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message \
 MATRIX_SK=sk_... \
 go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 
-# Streamable HTTP on :8080
-go run ./cmd/matrix --http :8080 --mode mock
-
-# Local deploy: every deployment publishes a fresh random-id site under ./data
-# (--domain makes website_url an absolute http://<site-id>.<domain>/ URL)
+# Local deploy + site hosting: every deployment publishes a fresh random-id
+# site, served by the same process at http://<site-id>.localhost/ (MCP stays
+# reachable on the listen address or at http://localhost:PORT/mcp/...)
 go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace --domain localhost
+
+# Rewrite every served index.html with a snippet (inject-proxy's HTML injection)
+go run ./cmd/matrix --data-dir ./data --inject-html '<script src="/probe.js"></script>'
 ```
 
-## Site server (deploy-server)
+## Site hosting (Host routing)
 
-Serves what `deploy` wrote into `--data-dir`: each published site
-(a random id, like the real server's per-deployment subdomain) becomes a
-second-level domain.
-
-```sh
-# Serve ./data at http://<project>.localhost/ (apex lists all sites)
-go run ./cmd/deploy-server --data-dir ./data --domain localhost --http :8080
-
-# Or let the environment pick the port (all servers honor $PORT):
-PORT=8080 go run ./cmd/deploy-server --data-dir ./data
-PORT=8080 go run ./cmd/matrix --mode mock   # serves HTTP; no $PORT = stdio
-
-# Rewrite every served index.html with a snippet (inject-proxy's HTML
-# injection, extracted into the reusable rewrite package):
-go run ./cmd/deploy-server --data-dir ./data --inject-html '<script src="/probe.js"></script>'
-go run ./cmd/deploy-server --data-dir ./data --inject ./inject-ball.html   # file form wins
-```
+With `--data-dir` the same process that serves MCP also hosts what `deploy`
+published: each site (a random id, like the real server's per-deployment
+subdomain) becomes a second-level domain. One listener, dispatch by Host:
 
 - `http://<site-id>.<domain>/` serves `data-dir/<site-id>/` (static files)
 - the bare apex (`http://localhost/`) lists all published sites
-- unknown sites, wrong domains and deeper subdomains are 404s
+- everything else is the MCP endpoint: the listen address itself
+  (`http://127.0.0.1:PORT/`), apex paths like `http://localhost:PORT/mcp/...`,
+  and any hostname outside the site namespace
+- unknown sites, wrong domains and deeper subdomains are 404s (the site
+  namespace owns every subdomain)
 - with `--inject`/`--inject-html`, requests that resolve to a directory's
   `index.html` are served with the snippet injected before `</body>`
   (idempotent; explicit `/index.html` URLs and other files behave exactly
   like plain static serving)
-- run it alongside `cmd/matrix --data-dir <same-dir>` for the full
-deploy → serve loop (`*.localhost` resolves to loopback in modern
-browsers; for other domains point the wildcard DNS record at this host)
+
+`*.localhost` resolves to loopback in modern browsers; for other domains
+point the wildcard DNS record at this host.
 
 
 ## Flags
@@ -81,11 +73,12 @@ browsers; for other domains point the wildcard DNS record at this host)
 | `--url` | `$MATRIX_URL` | Real matrix MCP HTTP endpoint |
 | `--token` | `$MATRIX_SK` | `?sk=` token |
 | `--source` | `$MATRIX_SOURCE` or `hermes` | `?source=` label (server whitelists `openclaw`, `hermes`) |
-| `--http` | empty | Address for streamable HTTP (e.g. `:8080`); defaults to `$PORT`, empty = stdio |
+| `--http` | `$PORT` or `:8080` | Listen address for the single HTTP listener (MCP + sites) |
 | `--timeout` | `5m` | Upstream request timeout (proxy mode) |
-| `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<random-id>` locally (a fresh site per deployment, mirroring the real server) instead of forwarding/mocking; `deploy-server` serves it |
+| `--data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<random-id>` locally (a fresh site per deployment, mirroring the real server) instead of forwarding/mocking, and the same process hosts the sites by Host; empty = no local hosting |
 | `--workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |
-| `--domain` | `$MATRIX_DOMAIN` | Apex domain for deploy `website_url` subdomains; empty = relative `/data/<site-id>/` URL |
+| `--domain` | `$MATRIX_DOMAIN` or `localhost` | Apex domain for deploy `website_url` and site hosting (subdomain dispatch) |
+| `--inject` / `--inject-html` | empty | HTML snippet (file wins over inline) injected into every served `index.html` |
 
 ## Verify
 
@@ -93,11 +86,13 @@ browsers; for other domains point the wildcard DNS record at this host)
 go test ./... -v
 ```
 
-Tests spin up the server over stdio with a real go-sdk client and check:
+Tests spin up the server over streamable HTTP with a real go-sdk client and check:
 
 - `tools/list` returns 22 tools; every input schema is a JSON object
-- `tools/call` on `batch_web_search` / `get_voice_list` returns JSON output
+- `tools/call` on all 22 tools (mock) returns the expected JSON/markdown output
 - invalid input (missing `dist_dir`) yields a tool error, not a panic
+- Host routing: sites and MCP on one listener, deployed site served with the
+  injected snippet end to end
 - `ProxyHandler` reaches the real matrix server (skipped when unreachable)
 
 ## Design notes

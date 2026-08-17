@@ -1,8 +1,8 @@
 // Package rewrite rewrites HTML documents by inserting a snippet before the
 // closing </body> tag (falling back to </html>, then to the end of the
 // document). It is the reusable core of inject-proxy's HTML injection and of
-// deploy-server's index rewriting: any component that serves HTML can apply
-// the same idempotent rewrite without going through a reverse proxy.
+// matrix's index rewriting: any component that serves HTML can apply the
+// same idempotent rewrite without going through a reverse proxy.
 //
 // The rewrite uses the HTML5 tokenizer, so a literal "</body>" inside a
 // script or attribute is treated as text and never corrupted (the failure

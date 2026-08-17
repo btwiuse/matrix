@@ -3,8 +3,12 @@ package matrix_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,15 +17,20 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// startServer launches the cmd/matrix binary in mock mode over stdio.
+// startServer launches the cmd/matrix binary in mock mode over streamable
+// HTTP (the only transport) and returns a connected client session.
 func startServer(t *testing.T) *mcp.ClientSession {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	addr := startHTTPProcess(t, "--mode", "mock")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "matrix-replica-test", Version: "0.0.1"}, nil)
-	transport := &mcp.CommandTransport{Command: exec.CommandContext(ctx, "go", "run", "../cmd/matrix", "--mode", "mock")}
-	session, err := client.Connect(ctx, transport, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             "http://" + addr,
+		DisableStandaloneSSE: true,
+	}, nil)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -441,5 +450,100 @@ func TestHTTPTransportProxyMode(t *testing.T) {
 	}
 	if _, ok := body["available_voices"]; !ok {
 		t.Errorf("expected available_voices over HTTP proxy, got %v", body)
+	}
+}
+
+// TestHTTPHostRouting verifies the merged binary end to end: with
+// --data-dir the same process serves both the MCP endpoint and deployed
+// sites, dispatched by Host. Deploy via MCP, then fetch the published site
+// by its subdomain and check the injected snippet.
+func TestHTTPHostRouting(t *testing.T) {
+	ws := t.TempDir()
+	dist := filepath.Join(ws, "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "index.html"), []byte("<html><body>hi</body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const snippet = `<script src="/probe.js"></script>`
+
+	addr := startHTTPProcess(t, "--mode", "mock",
+		"--data-dir", t.TempDir(), "--workspace-dir", ws,
+		"--domain", "localhost", "--inject-html", snippet)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	// MCP over the literal address (Host not inside the site namespace).
+	client := mcp.NewClient(&mcp.Implementation{Name: "matrix-route-test", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             "http://" + addr,
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("http connect: %v", err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "deploy",
+		Arguments: map[string]any{
+			"dist_dir": dist,
+		},
+	})
+	if err != nil {
+		t.Fatalf("deploy: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("deploy failed: %s", textOf(t, res))
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(textOf(t, res)), &out); err != nil {
+		t.Fatalf("deploy output is not JSON: %v", err)
+	}
+	u, _ := out["website_url"].(string)
+	site := strings.TrimSuffix(strings.TrimPrefix(u, "http://"), ".localhost/")
+	if site == "" {
+		t.Fatalf("website_url = %q, want http://<site>.localhost/", u)
+	}
+
+	get := func(host, path string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, "http://"+addr+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, string(b)
+	}
+
+	// The published site is served by its subdomain, with the snippet
+	// injected before </body>.
+	status, body := get(site+".localhost", "/")
+	if status != http.StatusOK || !strings.Contains(body, snippet) {
+		t.Fatalf("site %s/: status %d body %q", site, status, body)
+	}
+	if i, j := strings.Index(body, snippet), strings.Index(body, "</body>"); i == -1 || i > j {
+		t.Fatalf("snippet must precede </body> (snippet@%d body@%d)", i, j)
+	}
+	// The apex lists the site.
+	status, body = get("localhost", "/")
+	if status != http.StatusOK || !strings.Contains(body, site) {
+		t.Fatalf("apex listing: status %d body %q", status, body)
+	}
+	// A site subdomain with an MCP path stays in the site namespace: 404.
+	status, _ = get(site+".localhost", "/mcp/message")
+	if status != http.StatusNotFound {
+		t.Fatalf("site /mcp/message: status %d, want 404", status)
 	}
 }

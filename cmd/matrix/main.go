@@ -1,14 +1,17 @@
 // Command matrix runs the high-fidelity replica of the MiniMax matrix MCP
-// server, built on the modelcontextprotocol/go-sdk.
+// server, built on the modelcontextprotocol/go-sdk. It serves the same 22
+// tools with the exact same input schemas as the real matrix MCP server,
+// over streamable HTTP (the only transport).
 //
-// It serves the same 22 tools with the exact same input schemas as the real
-// matrix MCP server. Tool calls are forwarded to the real backend when
-// --url/--token are given (default behavior), otherwise a local mock serves
-// deterministic responses.
+// With --data-dir set, the same process also hosts the deployed sites:
+// requests are dispatched by Host — <site>.<domain> subdomains (and the
+// apex listing at "/") serve the deploy output, everything else (the
+// listen address, apex paths like /mcp/..., and unknown hostnames) serves
+// the MCP endpoint. With --inject/--inject-html, every served index.html
+// is rewritten with the snippet.
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
@@ -19,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/inject-proxy/rewrite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -34,15 +38,18 @@ func main() {
 		dataDir      string
 		workspaceDir string
 		domain       string
+		injectFile   string
+		injectHTML   string
 	)
 
 	root := &cobra.Command{
 		Use:   "matrix",
 		Short: "MiniMax matrix MCP server replica",
 		Long: "High-fidelity replica of the MiniMax matrix MCP server: the same 22 " +
-			"tools with the exact same input schemas. Tool calls are forwarded to the " +
-			"real backend when --url/--token are given (default behavior), otherwise a " +
-			"local mock serves deterministic responses.",
+			"tools with the exact same input schemas, over streamable HTTP. Tool calls " +
+			"are forwarded to the real backend when --url/--token are given (default " +
+			"behavior), otherwise a local mock serves deterministic responses. With " +
+			"--data-dir the same process also hosts deployed sites by Host.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var handler matrix.Handler
 			switch mode {
@@ -69,6 +76,9 @@ func main() {
 				return fmt.Errorf("unknown mode %q (want auto, proxy or mock)", mode)
 			}
 			if dataDir != "" {
+				if err := os.MkdirAll(dataDir, 0o755); err != nil {
+					return fmt.Errorf("creating data dir %s: %w", dataDir, err)
+				}
 				handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{
 					DataDir:      dataDir,
 					WorkspaceDir: workspaceDir,
@@ -81,21 +91,27 @@ func main() {
 			if err != nil {
 				return err
 			}
+			opts := &mcp.StreamableHTTPOptions{Stateless: true}
+			mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
 
-			ctx := context.Background()
-			// An explicit --http wins; otherwise honor $PORT. An empty $PORT
-			// (or an unparseable one) keeps the stdio entry point.
-			if addr == "" && !cmd.Flags().Changed("http") {
-				addr = listenAddr(os.Getenv("PORT"))
-			}
-			if addr != "" {
-				opts := &mcp.StreamableHTTPOptions{Stateless: true}
-				h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
-				log.Printf("matrix replica listening on %s (streamable HTTP)", addr)
-				return http.ListenAndServe(addr, h)
+			var h http.Handler = mcpHandler
+			if dataDir != "" {
+				injection, err := loadInjection(injectFile, injectHTML)
+				if err != nil {
+					return err
+				}
+				var inj *rewrite.Injector
+				if strings.TrimSpace(injection) != "" {
+					inj = rewrite.New(injection)
+					log.Printf("served index.html pages rewritten with a %d byte snippet", len(injection))
+				}
+				sites := matrix.NewSiteHandlerWithInjector(dataDir, domain, inj)
+				h = matrix.NewRouter(mcpHandler, sites)
+				log.Printf("serving deployed sites at http://<site>.%s/ (apex listing http://%s/)", sites.Domain(), sites.Domain())
 			}
 
-			return server.Run(ctx, &mcp.StdioTransport{})
+			log.Printf("matrix replica listening on %s (streamable HTTP)", addr)
+			return http.ListenAndServe(addr, h)
 		},
 	}
 
@@ -103,11 +119,13 @@ func main() {
 	root.Flags().StringVar(&token, "token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
 	root.Flags().StringVar(&source, "source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
 	root.Flags().StringVar(&mode, "mode", "auto", "handler mode: auto | proxy | mock")
-	root.Flags().StringVar(&addr, "http", "", "if set, serve streamable HTTP on this address (e.g. :8080); defaults to $PORT, empty = stdio")
+	root.Flags().StringVar(&addr, "http", defaultHTTPAddr(), "listen address (default $PORT or :8080)")
 	root.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "upstream request timeout for proxy mode")
-	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
+	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory and serves them by Host (empty = deploy is forwarded/mocked like the rest)")
 	root.Flags().StringVar(&workspaceDir, "workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
-	root.Flags().StringVar(&domain, "domain", os.Getenv("MATRIX_DOMAIN"), "apex domain for deploy website_url subdomains (default $MATRIX_DOMAIN; empty = relative /data/<site>/ URL)")
+	root.Flags().StringVar(&domain, "domain", envOr("MATRIX_DOMAIN", "localhost"), "apex domain for deploy website_url and site hosting (default $MATRIX_DOMAIN or localhost)")
+	root.Flags().StringVar(&injectFile, "inject", "", "HTML snippet file injected into served index.html pages")
+	root.Flags().StringVar(&injectHTML, "inject-html", "", "inline HTML snippet injected into served index.html pages")
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)
@@ -127,11 +145,33 @@ func proxyHandler(url, token, source string, timeout time.Duration) (matrix.Hand
 	return matrix.NewProxyHandler(cfg), nil
 }
 
+// loadInjection resolves the injection snippet: the file wins over the
+// inline value, mirroring inject-proxy's --inject/--inject-html flags.
+func loadInjection(file, inline string) (string, error) {
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("reading inject file: %w", err)
+		}
+		return string(b), nil
+	}
+	return inline, nil
+}
+
 func envOr(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
 	return def
+}
+
+// defaultHTTPAddr returns the listen address: $PORT when set and
+// parseable, otherwise :8080.
+func defaultHTTPAddr() string {
+	if a := listenAddr(os.Getenv("PORT")); a != "" {
+		return a
+	}
+	return ":8080"
 }
 
 // listenAddr normalizes a PORT-style value into a ListenAndServe address:

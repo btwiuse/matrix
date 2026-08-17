@@ -36,10 +36,7 @@ flexibility 高但样板多。泛型版足够时优先泛型。
 ## Transport
 
 ```go
-// stdio(默认)
-server.Run(ctx, &mcp.StdioTransport{})
-
-// streamable HTTP
+// streamable HTTP(矩阵唯一 transport,已弃 stdio)
 h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server },
     &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 http.ListenAndServe(":8080", h)
@@ -47,16 +44,16 @@ http.ListenAndServe(":8080", h)
 
 - `StreamableHTTPOptions.Stateless: true` = 无 session,GET/DELETE 返回 405,适合无状态部署。
 - `JSONResponse: true` 让响应走 application/json(默认 text/event-stream)。
+- **DNS rebinding 防护**(streamable.go): 监听在 loopback 时,go-sdk 会 403 非 loopback 的
+  Host 头。所以矩阵的 Host 路由**没有**为 MCP 保留 `mcp.<domain>` 子域(loopback 下会被 403),
+  MCP 走监听地址(127.0.0.1)或 apex 非根路径即可。
 
 ## Client 侧(测试用)
 
 ```go
 client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "0.0.1"}, nil)
 
-// stdio: 连到子进程
-session, err := client.Connect(ctx, &mcp.CommandTransport{Command: exec.Command("go", "run", "...")}, nil)
-
-// HTTP: 连到端点
+// HTTP: 连到端点(唯一方式)
 session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
     Endpoint: "http://127.0.0.1:8080",
     DisableStandaloneSSE: true, // 不需要 server 主动推送时省一条 SSE 连接
@@ -71,7 +68,7 @@ res, _ := session.CallTool(ctx, &mcp.CallToolParams{Name: "x", Arguments: map[st
 
 1. `mcp.TextContent` 的 MarshalJSON 是**指针接收者** → 存进 `[]mcp.Content` 必须用 `&mcp.TextContent{}`,
    否则编译错 "does not implement mcp.Content"。
-2. CommandTransport 里 `exec.CommandContext` 的 ctx 超时会杀掉子进程 — 测试记得给足 timeout。
+2. CommandTransport(stdio)已不再使用;HTTP 子进程测试记得给 ctx 足够 timeout。
 3. client 默认会开 SSE 长连接;测试纯请求-响应用 `DisableStandaloneSSE: true` 更快更稳。
 4. SchemaCache 可用于无状态部署复用反射结果(本项目没用到)。
 

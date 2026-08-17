@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
+}
 
 func TestListenAddr(t *testing.T) {
 	cases := []struct {
