@@ -77,7 +77,7 @@ func register[In any](server *mcp.Server, spec ToolSpec, call func(context.Conte
 			if errors.As(err, &te) {
 				return &mcp.CallToolResult{
 					Content: []mcp.Content{&mcp.TextContent{Text: te.JSON}},
-					IsError: true,
+					IsError: te.IsError,
 				}, nil, nil
 			}
 			return nil, nil, fmt.Errorf("%s: %w", spec.Name, err)
@@ -152,7 +152,7 @@ func registerAll(server *mcp.Server, byName map[string]ToolSpec, h Handler) erro
 	if err := reg1(server, byName, "images_list", h.ImagesList); err != nil {
 		return err
 	}
-	if err := reg1(server, byName, "deploy", h.Deploy); err != nil {
+	if err := regDeploy(server, byName, h); err != nil {
 		return err
 	}
 	if err := reg1(server, byName, "init_react_project", h.InitReactProject); err != nil {
@@ -165,6 +165,29 @@ func registerAll(server *mcp.Server, byName map[string]ToolSpec, h Handler) erro
 		return err
 	}
 	return nil
+}
+
+// regDeploy registers the deploy tool with a call-time schema that omits
+// the required list: the real server does not enforce it (a missing
+// dist_dir defaults to <workspace>/dist). tools/list still advertises the
+// verbatim schema: the EnvelopeRewriter restores the required field in
+// tools/list responses.
+func regDeploy(server *mcp.Server, byName map[string]ToolSpec, h Handler) error {
+	spec, ok := byName["deploy"]
+	if !ok {
+		return fmt.Errorf("tool %q missing from embedded schema", "deploy")
+	}
+	var m map[string]any
+	if err := json.Unmarshal(spec.InputSchema, &m); err != nil {
+		return fmt.Errorf("deploy input schema: %w", err)
+	}
+	delete(m, "required")
+	lenient, err := json.Marshal(m)
+	if err != nil {
+		return fmt.Errorf("deploy input schema: %w", err)
+	}
+	spec.InputSchema = lenient
+	return register(server, spec, h.Deploy)
 }
 
 // reg1 looks up the tool spec by name and registers the typed handler call

@@ -22,6 +22,23 @@
 3. **token 位置**: `/root/.config/crush/matrix.env` → `MATRIX_SK`(600 权限)。不要写进任何 git 文件。
 4. **HTTP 状态码**: 正常返回 200;错误时 JSON-RPC error 字段,HTTP 层仍是 200,解析时两个都要看。
 
+## deploy 工具实测对比(2026-08-18,本地 replica vs 真实 server)
+
+真实 server 行为(已全部对齐,2026-08-18):
+
+1. **部署产物强制注入 "Created by MiniMax Agent" 悬浮球(~4.6KB)**: 每个**被服务的 .html 文件**(index.html、about.html、sub/page.html 全部)在 `</body>` 前注入;非 html 文件不动。**本地 replica 未对齐此项**(--inject 是自研扩展,用户明确不做,仍只重写 index.html)。
+2. **website_id 是 431 前缀 + 12 位随机数**(431840818266354、431900120703430、431897721405594,非单调)→ 本地已改随机(原为 base+计数器)。
+3. **website_url 无尾斜杠**: `https://<11位site-id>.space.mcode.cn`(固定域名、https、真实公网)→ 本地已去尾斜杠:`http://<id>.localhost`。
+4. **成功结果带 `display_data`**({website_id, website_url})→ 本地经 `matrix/envelope.go` 在 HTTP 层注入(go-sdk 表达不了)。
+5. **isError 语义**: 缺 dist → isError=false(正常 result);dist 在 workspace 外 → isError=true → 本地 `ToolError.IsError` 已逐类对齐(缺 dist 用 softToolError)。
+6. **"required" 不强制**: 缺 dist_dir 时默认 `/workspace/dist` → 本地 deploy 注册时去掉 required,tools/list 响应由 envelope.go 补回(在线对比 22/22 不受影响)。
+7. **project_name 完全不校验**(`../evil` 也能部署成功)→ 本地已删校验。
+8. **SPA fallback**: 缺失的**无扩展名**路径(.git/HEAD、/plain-missing)返回注入后的 index.html(200);带扩展名的缺失路径(.js)返回 404;`/definitely-missing/` 目录形式 404。无 index.html 的站点根路径 404(不是目录列表)→ 本地 site.go 已对齐(无列表、显式 /index.html 直接 200 不 301)。
+9. **.git/node_modules 均不上传**(node_modules/junk.js → 404,.git/config 返回的是 fallback 的 index.html),与本地 ignoredDirs 一致。
+10. **每次部署新 URL 且旧 URL 长期有效**(append-only,实测 5 个旧站点全部存活)。
+11. **content[0].text 的 JSON 格式**: Python json.dumps(冒号后带空格、键序 website_id/website_url/screenshot_url)→ 本地 `pyJSON` + `deploySuccess` 已对齐。
+12. 无 index.html 不产生 warning(与本地一致);screenshot_url 恒为空字符串。
+
 ## schema 保真验证方法
 
 ```python

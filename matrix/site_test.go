@@ -259,28 +259,98 @@ func TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone(t *testing.T) {
 	if body := readBody(t, res); res.StatusCode != http.StatusOK || strings.Contains(body, rewriteSnippet) {
 		t.Fatalf("about.html: status %d body %q", res.StatusCode, body)
 	}
-	// A directory without index.html keeps http.FileServer's listing.
+	// A directory without index.html 404s: the real server never renders
+	// directory listings.
 	res = getHost(t, srv, "alpha.localhost", "/raw/")
-	body := readBody(t, res)
-	if res.StatusCode != http.StatusOK || strings.Contains(body, rewriteSnippet) {
-		t.Fatalf("listing: status %d body %q", res.StatusCode, body)
-	}
-	// Explicit /index.html URLs keep FileServer's redirect to ./.
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/index.html", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Host = "alpha.localhost"
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse // do not follow
-	}}
-	res, err = client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
 	res.Body.Close()
-	if res.StatusCode != http.StatusMovedPermanently {
-		t.Fatalf("explicit /index.html: status %d, want redirect", res.StatusCode)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("listing: status %d, want 404 (no listings like the real server)", res.StatusCode)
+	}
+	// Explicit /index.html URLs are served directly (200, rewritten), not
+	// redirected like http.FileServer does.
+	res = getHost(t, srv, "alpha.localhost", "/index.html")
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("explicit /index.html: status %d body %q", res.StatusCode, body)
+	}
+}
+
+func TestSiteHandlerSPAFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+
+	srv := httptest.NewServer(NewSiteHandler(dir, "localhost"))
+	t.Cleanup(srv.Close)
+
+	cases := []struct {
+		path string
+		want int
+	}{
+		// Missing extensionless paths fall back to index.html, like the real
+		// server's SPA fallback (.git/HEAD, /plain-missing -> 200).
+		{"/plain-missing", http.StatusOK},
+		{"/some/extensionless", http.StatusOK},
+		{"/.git/HEAD", http.StatusOK},
+		{"/sub/deep/missing-page", http.StatusOK},
+		// Missing paths with an extension 404.
+		{"/definitely-missing.js", http.StatusNotFound},
+		{"/missing.html", http.StatusNotFound},
+		// Directory-looking missing paths 404.
+		{"/definitely-missing/", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		res := getHost(t, srv, "alpha.localhost", tc.path)
+		body := readBody(t, res)
+		if res.StatusCode != tc.want {
+			t.Errorf("%s: status %d, want %d", tc.path, res.StatusCode, tc.want)
+			continue
+		}
+		if tc.want == http.StatusOK && !strings.Contains(body, "hello") {
+			t.Errorf("%s: fallback body %q must contain index.html content", tc.path, body)
+		}
+	}
+}
+
+func TestSiteHandlerSPAFallbackRespectsInjector(t *testing.T) {
+	dir := t.TempDir()
+	writeSite(t, dir, "alpha", "<html><body>hello</body></html>")
+
+	srv := httptest.NewServer(NewSiteHandlerWithInjector(dir, "localhost", rewrite.New(rewriteSnippet)))
+	t.Cleanup(srv.Close)
+
+	// The fallback serves the rewritten index.html.
+	res := getHost(t, srv, "alpha.localhost", "/plain-missing")
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, rewriteSnippet) {
+		t.Fatalf("fallback: status %d body %q", res.StatusCode, body)
+	}
+	if i, j := strings.Index(body, rewriteSnippet), strings.Index(body, "</body>"); i == -1 || i > j {
+		t.Fatalf("snippet must precede </body> (snippet@%d body@%d)", i, j)
+	}
+}
+
+func TestSiteHandlerNoIndexHTMLIs404(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "alpha", "plain.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(NewSiteHandler(dir, "localhost"))
+	t.Cleanup(srv.Close)
+
+	// A site without index.html 404s at the root (no listing), while real
+	// files still serve — matching the real server's noidx deployment.
+	res := getHost(t, srv, "alpha.localhost", "/")
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("root of index-less site: status %d, want 404", res.StatusCode)
+	}
+	res = getHost(t, srv, "alpha.localhost", "/plain.txt")
+	if body := readBody(t, res); res.StatusCode != http.StatusOK || body != "hi" {
+		t.Fatalf("plain.txt: status %d body %q", res.StatusCode, body)
 	}
 }
 

@@ -3,6 +3,7 @@ package matrix_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -243,9 +244,11 @@ func TestCallToolAllTools(t *testing.T) {
 func TestCallToolRejectsInvalidInput(t *testing.T) {
 	session := startServer(t)
 
-	// deploy requires dist_dir; omitting it must produce a tool error, not a panic.
+	// image_synthesize requires requests; omitting it must produce a tool
+	// error, not a panic. (deploy is deliberately lenient: the real server
+	// accepts a missing dist_dir and defaults it to <workspace>/dist.)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "deploy",
+		Name:      "image_synthesize",
 		Arguments: map[string]any{},
 	})
 	if err != nil {
@@ -503,9 +506,64 @@ func TestHTTPHostRouting(t *testing.T) {
 		t.Fatalf("deploy output is not JSON: %v", err)
 	}
 	u, _ := out["website_url"].(string)
-	site := strings.TrimSuffix(strings.TrimPrefix(u, "http://"), ".localhost/")
+	site := strings.TrimSuffix(strings.TrimPrefix(u, "http://"), ".localhost")
 	if site == "" {
-		t.Fatalf("website_url = %q, want http://<site>.localhost/", u)
+		t.Fatalf("website_url = %q, want http://<site>.localhost (no trailing slash)", u)
+	}
+
+	// The raw HTTP envelope carries the real server's result extras, which
+	// the go-sdk client hides: display_data and an explicit isError flag.
+	// The go-sdk requires both Accept types and answers with an SSE event.
+	raw := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deploy","arguments":{"dist_dir":%q}}}`, dist)
+	req, err := http.NewRequest(http.MethodPost, "http://"+addr+"/", strings.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	rawResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("raw deploy: %v", err)
+	}
+	defer rawResp.Body.Close()
+	rawBody, err := io.ReadAll(rawResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := string(rawBody)
+	if strings.HasPrefix(envelope, "event:") {
+		for _, line := range strings.Split(envelope, "\n") {
+			if strings.HasPrefix(line, "data:") {
+				envelope = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+	}
+	var rpc map[string]any
+	if err := json.Unmarshal([]byte(envelope), &rpc); err != nil {
+		t.Fatalf("raw envelope is not JSON: %v (%s)", err, envelope)
+	}
+	result, _ := rpc["result"].(map[string]any)
+	if result == nil {
+		t.Fatalf("raw envelope missing result: %s", rawBody)
+	}
+	if isErr, _ := result["isError"].(bool); isErr {
+		t.Fatalf("raw deploy result isError = true, want explicit false: %s", envelope)
+	}
+	display, _ := result["display_data"].(map[string]any)
+	if display == nil {
+		t.Fatalf("raw deploy result missing display_data: %s", envelope)
+	}
+	// display_data must mirror the deployment's own content text (each raw
+	// call publishes a fresh site, so compare within this response only).
+	var textObj map[string]any
+	if err := json.Unmarshal([]byte(textOfTextContent(t, envelope)), &textObj); err != nil {
+		t.Fatalf("raw deploy text is not JSON: %v (%s)", err, envelope)
+	}
+	if display["website_id"] != textObj["website_id"] {
+		t.Errorf("display_data.website_id = %v, want %v (matching content text)", display["website_id"], textObj["website_id"])
+	}
+	if display["website_url"] != textObj["website_url"] {
+		t.Errorf("display_data.website_url = %v, want %v (matching content text)", display["website_url"], textObj["website_url"])
 	}
 
 	get := func(host, path string) (int, string) {
@@ -541,9 +599,31 @@ func TestHTTPHostRouting(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(body, site) {
 		t.Fatalf("apex listing: status %d body %q", status, body)
 	}
-	// A site subdomain with an MCP path stays in the site namespace: 404.
-	status, _ = get(site+".localhost", "/mcp/message")
-	if status != http.StatusNotFound {
-		t.Fatalf("site /mcp/message: status %d, want 404", status)
+	// A site subdomain with an MCP path stays in the site namespace: like
+	// the real server's gateway it serves the SPA fallback (the site's own
+	// index.html), never the MCP endpoint.
+	status, body = get(site+".localhost", "/mcp/message")
+	if status != http.StatusOK || !strings.Contains(body, snippet) {
+		t.Fatalf("site /mcp/message: status %d body %q, want the site's index.html", status, body)
 	}
+}
+
+// textOfTextContent extracts content[0].text from a raw JSON-RPC envelope.
+func textOfTextContent(t *testing.T, envelope string) string {
+	t.Helper()
+	var rpc map[string]any
+	if err := json.Unmarshal([]byte(envelope), &rpc); err != nil {
+		t.Fatalf("envelope is not JSON: %v (%s)", err, envelope)
+	}
+	result, _ := rpc["result"].(map[string]any)
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("no content in envelope: %s", envelope)
+	}
+	c0, _ := content[0].(map[string]any)
+	text, _ := c0["text"].(string)
+	if text == "" {
+		t.Fatalf("no text in envelope: %s", envelope)
+	}
+	return text
 }

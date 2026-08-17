@@ -8,32 +8,37 @@
 | `TestCallToolAllTools` | HTTP: table-driven 遍历全部 22 工具,最小合法参数各调一次,断言输出可解析 + 期望键/子串 | PASS |
 | `TestCallToolBatchWebSearch` | HTTP: 调用 + JSON 输出含 `results` 键(mock) | PASS |
 | `TestCallToolGetVoiceList` | HTTP: 无参工具调用 + `available_voices` 键 | PASS |
-| `TestCallToolRejectsInvalidInput` | HTTP: 缺 required 字段 → IsError 而非 panic | PASS |
+| `TestCallToolRejectsInvalidInput` | HTTP: 缺 required 字段(image_synthesize;deploy 故意宽松,同正式版)→ IsError 而非 panic | PASS |
 | `TestProxyHandlerForwardsToRealServer` | proxy: 转发到真实 server 取回真实 voices(不可达时 SKIP) | PASS |
 | `TestProxyForwardsLowSideEffectTools` | proxy: get_voice_list / images_list / synthesize_speech 走真实 server,校验输出子串(不可达时 SKIP) | PASS |
 | `TestHTTPTransport` | HTTP: 起子进程 `-http` → go-sdk StreamableClientTransport 连接 → list+call(mock) | PASS |
 | `TestHTTPTransportProxyMode` | HTTP+proxy: `-mode proxy` 起子进程,list 22 工具 + get_voice_list 转发真实 server(不可达时 SKIP) | PASS |
 | `TestLocalDeployCopiesAssets` | LocalDeploy: dist 树完整拷贝到 data/<site-id>,输出 website_id/website_url/screenshot_url(与正式版同形状) | PASS |
 | `TestLocalDeployProjectNameDoesNotDetermineLocation` | project_name/dist basename 不决定发布位置(随机 site-id,同正式版) | PASS |
-| `TestLocalDeployRejectsPathTraversal` | project_name `../evil`/绝对路径/含分隔符 → tool error,且无文件逃逸 | PASS |
+| `TestLocalDeployIgnoresProjectName` | project_name `../evil`/绝对路径/含分隔符 → 部署成功(正式版不校验),URL 不含 project name,无文件逃逸 | PASS |
 | `TestLocalDeployRejectsDistOutsideWorkspace` | dist_dir 在 workspace 外 → 措辞同正式版的 tool error(`under <ws>/` 尾斜杠) | PASS |
 | `TestLocalDeployRejectsWorkspaceItself` | workspace 根本身不可用 → tool error | PASS |
-| `TestLocalDeployMissingDist` | dist 不存在 → `{"error":"dist directory does not exist","message":"...built files. Error: <stat 错误>"}`(message 含正式版同款 "Error:" 详情) | PASS |
+| `TestLocalDeployMissingDist` | dist 不存在 → `{"error": "dist directory does not exist", "message": "...built files. Error: <stat 错误>"}`,Python 风格格式,isError=false(softToolError,同正式版) | PASS |
 | `TestLocalDeployDefaultsDistDirToWorkspaceDist` | 缺 dist_dir → 默认 `<workspace>/dist` | PASS |
 | `TestLocalDeploySkipsDevDirsAndSymlinks` | node_modules/.git 不拷贝;指向树外符号链接跳过 | PASS |
 | `TestLocalDeployNoIndexHTMLSucceedsWithoutWarning` | 无 index.html → 成功且无 warning(对齐实测) | PASS |
-| `TestLocalDeployFreshWebsiteIDPerDeployment` | 每次部署 website_id 递增 | PASS |
+| `TestLocalDeployValidationErrorsAreHard` | 路径越界/workspace 本身 → isError=true(同正式版逐类对齐) | PASS |
 | `TestLocalDeployKeepsPreviousReleases` | 重复部署 → 每次新随机目录/URL,旧发布保留(对齐正式版每次新子域) | PASS |
-| `TestLocalDeployAbsoluteURLWithDomain` | 配置 Domain 后 website_url = http://<site-id>.<domain>/ | PASS |
+| `TestLocalDeployOutputFormatting` | 成功输出 Python 风格(冒号后空格、键序 website_id/website_url/screenshot_url),website_id 在 431 前缀 15 位区间 | PASS |
+| `TestLocalDeployRandomWebsiteIDPerDeployment` | 每次部署 website_id 随机(非递增,同正式版) | PASS |
+| `TestLocalDeployAbsoluteURLWithDomain` | 配置 Domain 后 website_url = http://<site-id>.<domain>(无尾斜杠,同正式版) | PASS |
 | `TestLocalDeployOtherToolsDelegate` | 其余工具经内嵌 Handler 委托,不受影响 | PASS |
 | rewrite 包: `TestInjectIdempotent` / `TestInjectFallbackAppend` / `TestInjectIgnoresLiteralTags` / `TestInjectPreservesFormat` | 注入核心(幂等、兜底追加、字面 `</body>` 不误插、逐字节保真),从根包移入 rewrite 包 | PASS |
 | `TestSiteHandlerRewritesIndexHTML` | SiteHandler + injector: `/` 与 `/sub/` 的 index.html 被重写,snippet 在 `</body>` 前,非 HTML 资产不动 | PASS |
 | `TestSiteHandlerRewriteIsIdempotent` | 二次请求不重复注入,两次响应一致 | PASS |
 | `TestSiteHandlerNoRewriteWithoutInjector` | 未配 injector 时原样服务(旧行为) | PASS |
-| `TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone` | about.html 不重写;无 index.html 的目录仍走 FileServer 列表;显式 `/index.html` 仍是重定向 | PASS |
+| `TestSiteHandlerRewriteLeavesPlainPagesAndListingsAlone` | about.html 不重写;无 index.html 目录 404(无列表);显式 /index.html 直接 200(不 301) | PASS |
+| `TestSiteHandlerSPAFallback` / `TestSiteHandlerSPAFallbackRespectsInjector` | 缺失无扩展名路径 → 200 fallback 到 index.html(含注入);带扩展名/目录形式缺失 → 404(对齐正式版 gateway) | PASS |
+| `TestSiteHandlerNoIndexHTMLIs404` | 无 index.html 站点根路径 404,真实文件仍 200(对齐正式版 noidx 部署) | PASS |
 | `TestSiteHandlerRewriteHeadRequest` | HEAD: 200, Content-Length = 重写后长度,空 body | PASS |
 | `TestRouterDispatch` | Router 单测: 子域/apex 列表 → 站点;监听地址/apex 非根路径/未知 Host → MCP;大小写与端口不敏感 | PASS |
-| `TestHTTPHostRouting` | e2e 合并后单进程: 经 MCP deploy → 按 website_url 子域取回站点(含注入 snippet)、apex 列表、站点子域上的 MCP 路径 404 | PASS |
+| `TestHTTPHostRouting` | e2e 合并后单进程: 经 MCP deploy → 按 website_url 子域取回站点(含注入 snippet)、apex 列表、站点子域上 /mcp/message 是 SPA fallback(站点自己的 index.html,非 MCP);裸 HTTP envelope 断言 display_data + 显式 isError:false | PASS |
+| `TestEnvelopeAddsDisplayDataAndIsError` 等 7 个 | envelope.go 单测: display_data 注入、soft/hard error 的 isError、tools/list 补回 deploy required、非 deploy 工具不动、SSE framing 保持、ServeHTTP 集成 | PASS |
 | `TestLoadInjection` | `--inject` 文件优先于 `--inject-html`;文件缺失报错 | PASS |
 
 ## 真实 server 对比验证(2026-08-18)

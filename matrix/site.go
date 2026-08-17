@@ -86,42 +86,79 @@ func (s *SiteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.serveSite(w, r, dir)
 }
 
-// serveSite serves one project's directory. With an injector configured,
-// requests that resolve to a directory's index.html are rewritten before
-// serving; everything else behaves exactly like http.FileServer (redirects,
-// listings, ranges, explicit /index.html URLs).
+// serveSite serves one project's directory, mirroring the real server's
+// file gateway: requests resolving to a directory's index.html serve it
+// (rewritten when an injector is configured), existing files serve as-is,
+// directories without index.html and missing paths are 404s, and missing
+// extensionless paths fall back to index.html (SPA fallback).
 func (s *SiteHandler) serveSite(w http.ResponseWriter, r *http.Request, dir string) {
-	if s.injector == nil || !s.tryRewriteIndex(w, r, dir) {
-		http.FileServer(http.Dir(dir)).ServeHTTP(w, r)
-	}
-}
-
-// tryRewriteIndex takes over the response when the request resolves to a
-// directory's index.html, serving it with the snippet injected. Only
-// requests ending in "/" resolve to index.html: http.FileServer redirects
-// explicit /index.html URLs and serves plain files directly.
-func (s *SiteHandler) tryRewriteIndex(w http.ResponseWriter, r *http.Request, dir string) bool {
 	upath := r.URL.Path
 	if !strings.HasPrefix(upath, "/") {
 		upath = "/" + upath
 	}
-	if !strings.HasSuffix(upath, "/") {
-		return false
-	}
-	full := filepath.Join(dir, filepath.FromSlash(path.Clean(upath)))
-	// Guard against escaping the project directory: http.FileServer also
-	// cleans the path, but a rewrite must never read outside the project.
+	clean := path.Clean(upath)
+	full := filepath.Join(dir, filepath.FromSlash(clean))
+	// Guard against escaping the project directory: path traversal must
+	// never read outside the project.
 	if rel, err := filepath.Rel(dir, full); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
+		http.NotFound(w, r)
+		return
 	}
 	fi, err := os.Stat(full)
-	if err != nil || !fi.IsDir() {
-		return false // not a directory: FileServer serves or 404s it
+	switch {
+	case err != nil:
+		// Missing path: the real server falls back to index.html for
+		// extensionless non-directory paths, and 404s everything else
+		// (paths with an extension, and directory-looking paths).
+		if !strings.HasSuffix(upath, "/") && path.Ext(clean) == "" {
+			if s.serveIndex(w, r, dir) {
+				return
+			}
+		}
+		http.NotFound(w, r)
+	case fi.IsDir():
+		if s.serveIndex(w, r, full) {
+			return
+		}
+		http.NotFound(w, r) // no index.html: the real server 404s, no listing
+	default:
+		// Existing plain file. Explicit /index.html URLs are served
+		// directly (no redirect), rewritten when an injector is configured.
+		if s.injector != nil && path.Base(clean) == "index.html" {
+			if s.serveIndex(w, r, filepath.Dir(full)) {
+				return
+			}
+		}
+		f, err := os.Open(full)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 	}
-	index := filepath.Join(full, "index.html")
+}
+
+// serveIndex serves dir/index.html: rewritten with the injector when one
+// is configured (with Content-Type, Last-Modified and Content-Length set,
+// HEAD getting an empty body), otherwise verbatim through ServeContent. It
+// reports whether the request was taken over (index.html existed); when it
+// returns false the caller should 404.
+func (s *SiteHandler) serveIndex(w http.ResponseWriter, r *http.Request, dir string) bool {
+	index := filepath.Join(dir, "index.html")
 	info, err := os.Stat(index)
-	if err != nil {
-		return false // no index.html: FileServer renders the listing
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if s.injector == nil {
+		f, err := os.Open(index)
+		if err != nil {
+			http.NotFound(w, r)
+			return true
+		}
+		defer f.Close()
+		http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+		return true
 	}
 	b, err := os.ReadFile(index)
 	if err != nil {

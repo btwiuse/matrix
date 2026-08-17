@@ -161,13 +161,11 @@ func (m *MockHandler) ImagesList(_ context.Context, in *ImagesListRequest) (Outp
 	return []byte(b.String()), nil
 }
 
-func (m *MockHandler) Deploy(_ context.Context, in *DeployRequest) (Output, error) {
-	// Same output shape as the real server: website_id/website_url/screenshot_url.
-	return mockOutput(map[string]any{
-		"website_id":     431000000000001,
-		"website_url":    "https://mock.example.com/",
-		"screenshot_url": "",
-	})
+func (m *MockHandler) Deploy(_ context.Context, _ *DeployRequest) (Output, error) {
+	// Same output shape and formatting as the real server: random website
+	// id, absolute URL without trailing slash, Python-style JSON.
+	site := newSiteID(12)
+	return deploySuccess(newWebsiteID(), "https://mock.example.com/"+site), nil
 }
 
 func (m *MockHandler) InitReactProject(_ context.Context, in *InitReactProjectRequest) (Output, error) {

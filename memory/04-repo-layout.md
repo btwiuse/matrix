@@ -19,8 +19,8 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
 │   └── matrix/           # 唯一入口 (cobra CLI): MCP + 站点托管,单一 HTTP 监听
 ├── matrix/               # matrix 复刻库(独立包,非根包!)
 │   ├── schema.json       # 真实 server tools/list 抓取(go:embed)
-│   ├── types.go handler.go server.go proxy.go mock.go deploy.go site.go router.go
-│   └── server_test.go deploy_test.go site_test.go router_test.go
+│   ├── types.go handler.go server.go proxy.go mock.go deploy.go site.go router.go envelope.go
+│   └── server_test.go deploy_test.go site_test.go router_test.go envelope_test.go
 ├── test/                 # 手工测试文件
 ├── memory/               # 本知识库(见 README.md)
 └── README.md             # 仓库总览
@@ -43,19 +43,24 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
    loopback 监听下会 403 非 loopback Host(见 03)。
 4. **本地 deploy(与正式版完全对齐,2026-08-18 实测)**: `matrix/deploy.go` 的 `LocalDeploy` 包装任意
    Handler,只覆写 Deploy。对齐点:① dist_dir 必须位于 workspace(默认 /workspace,`-workspace-dir`
-   可配)子目录,workspace 本身也不行,报错措辞逐字照抄正式版;② 缺 dist_dir 默认 `<workspace>/dist`;
-   ③ 成功输出形状 `{"website_id","website_url","screenshot_url"}`,`website_url` =
-   `http://<site-id>.<domain>/`(--domain 默认 localhost,由同一进程托管);④ 错误走 `ToolError` →
-   content 为 JSON 文本 + isError=true(register 已支持),与正式版一致;⑤ 无 index.html 不报
-   warning(实测正式版无 warning,尽管 schema 描述说有);⑥ 每次部署新随机 site-id(12 位,append-only,
-   旧发布保留,对齐正式版每次新子域),website_id 递增(基准 431000000000000);
-   ⑦ 措辞对齐: workspace 拒绝文案 `under <ws>/`(尾斜杠,逐字同正式版);缺 dist 的 message 追加
-   `Error: <os.Stat 错误>` 详情(正式版是 file gateway 404 详情,本地用等价物)。
-   跳过 .git/node_modules/符号链接。
+   可配)子目录,workspace 本身也不行,报错措辞逐字照抄正式版;② 缺 dist_dir **不强制 required**(本地
+   schema 注册时去掉 required,`envelope.go` 在 tools/list 响应里补回),默认 `<workspace>/dist`;
+   ③ 成功输出 Python 风格 JSON(冒号后带空格,键序 website_id/website_url/screenshot_url),
+   `website_url` = `http://<site-id>.<domain>`(**无尾斜杠**,同正式版 `https://<id>.space.mcode.cn`);
+   ④ `website_id` = 431 前缀 + 12 位**随机**(同正式版,非递增);⑤ 错误走 `ToolError` → content 为
+   JSON 文本(同样 Python 风格);**isError 逐类对齐**: 缺 dist = false(softToolError),路径越界 = true;
+   ⑥ 无 index.html 不报 warning(实测正式版无 warning,尽管 schema 描述说有);⑦ 每次部署新随机
+   site-id(12 位,append-only,旧发布保留);⑧ 措辞对齐: workspace 拒绝文案 `under <ws>/`(尾斜杠,
+   逐字同正式版);缺 dist 的 message 追加 `Error: <os.Stat 错误>` 详情(正式版是 file gateway 404
+   详情,本地用等价物);⑨ project_name 完全不校验(`../evil` 也能部署,同正式版);⑩ 成功结果额外
+   `display_data {website_id, website_url}` + 显式 isError:false(go-sdk 表达不了,
+   `envelope.go` 在 HTTP 层注入,SSE/纯 JSON 两种 framing 都处理);⑪ 站点托管对齐正式版 gateway:
+   无目录列表(无 index.html 的目录 404)、显式 /index.html 直接 200(不 301)、缺失的无扩展名路径
+   SPA fallback 到 index.html、带扩展名缺失路径 404。跳过 .git/node_modules/符号链接。
 4. **注入核心 = rewrite 包**(根包 htmlinject 的 Injector 是薄包装:内嵌 *rewrite.Injector + verbose);
    `matrix --inject/--inject-html` 通过 `NewSiteHandlerWithInjector` 复用同一实现:
-   SiteHandler.injector 非 nil 时,只有"以 / 结尾且解析到目录 index.html"的请求被重写,
-   其余(显式 /index.html 的 FileServer 重定向、普通文件、无 index.html 的目录列表)原样走 FileServer。
+   SiteHandler.injector 非 nil 时,目录 index.html(含 SPA fallback 与显式 /index.html)被重写,
+   其余普通文件原样服务。
 5. token/密钥一律不进 git:`matrix.env` 在 `/root/.config/crush/`,600 权限。
 6. 提交信息: 主题行 ≤72 字符,解释 why;署名 `Crush <crush@local>`。
 

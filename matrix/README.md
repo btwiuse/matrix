@@ -17,7 +17,8 @@ backend (`DIFFS: 0`).
 | `server.go` | `mcp.Server` assembly; registers all 22 tools via `mcp.AddTool` |
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
-| `deploy.go` | `LocalDeploy`: local `deploy`; each deployment publishes a fresh random-id directory under `data/<site-id>` (previous releases kept, like the real server) |
+| `deploy.go` | `LocalDeploy`: local `deploy`; each deployment publishes a fresh random-id directory under `data/<site-id>` (previous releases kept, like the real server); random 431-prefixed `website_id`, absolute `website_url` without trailing slash, Python-style JSON text, per-case `isError` flags |
+| `envelope.go` | `EnvelopeRewriter`: HTTP-layer envelope patches go-sdk cannot express (`display_data`, explicit `isError:false`, tools/list `required` restore) |
 | `site.go` | `SiteHandler`: serves `data/<project>` at `http://<project>.<domain>/` (optional index.html rewrite) |
 | `router.go` | `Router`: dispatches by Host — site subdomains vs the MCP endpoint |
 | `cmd/matrix` | Single entry point (cobra CLI): MCP + site hosting on one HTTP listener |
@@ -35,7 +36,7 @@ MATRIX_SK=sk_... \
 go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 
 # Local deploy + site hosting: every deployment publishes a fresh random-id
-# site, served by the same process at http://<site-id>.localhost/ (MCP stays
+# site, served by the same process at http://<site-id>.localhost (MCP stays
 # reachable on the listen address or at http://localhost:PORT/mcp/...)
 go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace --domain localhost
 
@@ -56,10 +57,16 @@ subdomain) becomes a second-level domain. One listener, dispatch by Host:
   and any hostname outside the site namespace
 - unknown sites, wrong domains and deeper subdomains are 404s (the site
   namespace owns every subdomain)
-- with `--inject`/`--inject-html`, requests that resolve to a directory's
-  `index.html` are served with the snippet injected before `</body>`
-  (idempotent; explicit `/index.html` URLs and other files behave exactly
-  like plain static serving)
+- with `--inject`/`--inject-html`, `index.html` (directory roots, explicit
+  `/index.html` URLs and SPA fallbacks) is served with the snippet injected
+  before `</body>` (idempotent); other files are served untouched
+- missing extensionless paths fall back to `index.html` (SPA fallback, like
+  the real gateway); missing paths with an extension, missing directories
+  and directories without `index.html` are 404s (no directory listings)
+- `deploy` output matches the real server: random 15-digit `website_id` with
+  the `431` prefix, `website_url` without trailing slash, Python-style JSON
+  in `content[0].text`, `display_data` in the result envelope, `isError`
+  false for the soft missing-dist error and true for path validation errors
 
 `*.localhost` resolves to loopback in modern browsers; for other domains
 point the wildcard DNS record at this host.
@@ -90,9 +97,12 @@ Tests spin up the server over streamable HTTP with a real go-sdk client and chec
 
 - `tools/list` returns 22 tools; every input schema is a JSON object
 - `tools/call` on all 22 tools (mock) returns the expected JSON/markdown output
-- invalid input (missing `dist_dir`) yields a tool error, not a panic
+- invalid input (missing required field) yields a tool error, not a panic
+  (`deploy` is deliberately lenient: a missing `dist_dir` defaults to
+  `<workspace>/dist`, like the real server)
 - Host routing: sites and MCP on one listener, deployed site served with the
-  injected snippet end to end
+  injected snippet end to end; raw envelopes carry `display_data` and the
+  explicit `isError` flag
 - `ProxyHandler` reaches the real matrix server (skipped when unreachable)
 
 ## Design notes

@@ -8,23 +8,96 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-	"sync/atomic"
 )
 
 // ToolError makes a handler return a JSON tool error whose text matches the
-// real matrix server: the JSON body goes into content[0].text and the result
-// is flagged isError=true.
-type ToolError struct{ JSON string }
+// real matrix server: the JSON body goes into content[0].text. IsError
+// mirrors the real server's per-error result flag (true for validation
+// errors, false for the missing-dist case).
+type ToolError struct {
+	JSON    string
+	IsError bool
+}
 
 func (e *ToolError) Error() string { return e.JSON }
 
 func toolError(v any) error {
+	return &ToolError{JSON: pyJSON(v), IsError: true}
+}
+
+// softToolError is a tool error the real server returns as a regular
+// (non-error) result: the JSON body still carries the error text in
+// content[0].text, but isError stays false.
+func softToolError(v any) error {
+	return &ToolError{JSON: pyJSON(v)}
+}
+
+// pyJSON renders v like Python's json.dumps with default separators
+// (", " between items, ": " between keys and values), matching the text
+// the real matrix server puts into content[0].text. Map keys are sorted
+// like Python's json.dumps sorts dict keys.
+func pyJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Errorf("encoding tool error: %w", err)
+		return fmt.Sprint(v)
 	}
-	return &ToolError{JSON: string(b)}
+	var x any
+	if err := json.Unmarshal(b, &x); err != nil {
+		return string(b)
+	}
+	var sb strings.Builder
+	pyWrite(&sb, x)
+	return sb.String()
+}
+
+func pyWrite(b *strings.Builder, x any) {
+	switch t := x.(type) {
+	case nil:
+		b.WriteString("null")
+	case bool:
+		if t {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+	case string:
+		q, _ := json.Marshal(t)
+		b.Write(q)
+	case float64:
+		q, _ := json.Marshal(t)
+		b.Write(q)
+	case []any:
+		b.WriteByte('[')
+		for i, e := range t {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			pyWrite(b, e)
+		}
+		b.WriteByte(']')
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		b.WriteByte('{')
+		for i, k := range keys {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			q, _ := json.Marshal(k)
+			b.Write(q)
+			b.WriteString(": ")
+			pyWrite(b, t[k])
+		}
+		b.WriteByte('}')
+	default:
+		q, _ := json.Marshal(t)
+		b.Write(q)
+	}
 }
 
 // toolErr is shorthand for a tool error whose body is {"error": message}.
@@ -60,7 +133,6 @@ type DeployConfig struct {
 type LocalDeploy struct {
 	Handler
 	cfg DeployConfig
-	seq int64 // monotonically increasing website id sequence
 }
 
 // NewLocalDeploy wraps h so that deploy writes assets into cfg.DataDir.
@@ -71,9 +143,16 @@ func NewLocalDeploy(h Handler, cfg DeployConfig) *LocalDeploy {
 	return &LocalDeploy{Handler: h, cfg: cfg}
 }
 
-// websiteIDBase keeps generated ids in the same magnitude as the real
-// server's website ids (15 digits).
+// websiteIDBase is the fixed 3-digit prefix of the real server's website
+// ids: they are 15-digit numbers in [431000000000000, 431999999999999]
+// whose remaining 12 digits are random per deployment, not sequential.
 const websiteIDBase = int64(431000000000000)
+
+// newWebsiteID returns a website id in the real server's range: the fixed
+// 431 prefix plus 12 random digits.
+func newWebsiteID() int64 {
+	return websiteIDBase + rand.Int64N(1_000_000_000_000)
+}
 
 // siteIDChars mirrors the charset of the real server's random subdomains.
 const siteIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -129,7 +208,9 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 	if err != nil {
 		// The real server appends the file gateway's 404 detail to the
 		// message; locally the os.Stat failure is the equivalent detail.
-		return nil, toolError(map[string]string{
+		// The real server returns this case with isError=false, so use the
+		// soft error to match.
+		return nil, softToolError(map[string]string{
 			"error":   "dist directory does not exist",
 			"message": fmt.Sprintf("Please ensure that the directory %s exists and contains built files. Error: %v", abs, err),
 		})
@@ -138,11 +219,9 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		return nil, toolErr("dist_dir %s is not a directory", abs)
 	}
 
-	// project_name is validated but, like on the real server, does not
-	// determine the published location.
-	if name := in.ProjectName; name != "" && !validDirName(name) {
-		return nil, toolErr("invalid project_name %q", name)
-	}
+	// project_name is ignored entirely, like on the real server (even
+	// path-traversal-looking values deploy fine and do not determine the
+	// published location).
 	if d.cfg.DataDir == "" {
 		return nil, toolErr("data dir not configured")
 	}
@@ -159,18 +238,23 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		return nil, toolErr("copying %s: %v", abs, err)
 	}
 
-	id := atomic.AddInt64(&d.seq, 1) + websiteIDBase
+	id := newWebsiteID()
 	// website_url mirrors the real server's per-deployment URL: the site id
-	// becomes the subdomain, or the path when no domain is configured.
+	// becomes the subdomain, or the path when no domain is configured. The
+	// absolute form carries no trailing slash, like the real server's
+	// https://<site>.space.mcode.cn.
 	url := "/data/" + site + "/"
 	if d.cfg.Domain != "" {
-		url = "http://" + site + "." + d.cfg.Domain + "/"
+		url = "http://" + site + "." + d.cfg.Domain
 	}
-	return json.Marshal(map[string]any{
-		"website_id":     id,
-		"website_url":    url,
-		"screenshot_url": "",
-	})
+	return deploySuccess(id, url), nil
+}
+
+// deploySuccess renders the deploy result exactly like the real server:
+// Python-style JSON (space after colon) with the insertion order
+// website_id, website_url, screenshot_url.
+func deploySuccess(id int64, url string) []byte {
+	return []byte(fmt.Sprintf(`{"website_id": %d, "website_url": %q, "screenshot_url": ""}`, id, url))
 }
 
 // validDirName rejects project names that could escape the data directory.

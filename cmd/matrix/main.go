@@ -94,7 +94,7 @@ func main() {
 			opts := &mcp.StreamableHTTPOptions{Stateless: true}
 			mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
 
-			var h http.Handler = mcpHandler
+			var h http.Handler = matrix.NewEnvelopeRewriter(mcpHandler)
 			if dataDir != "" {
 				injection, err := loadInjection(injectFile, injectHTML)
 				if err != nil {
@@ -106,7 +106,7 @@ func main() {
 					log.Printf("served index.html pages rewritten with a %d byte snippet", len(injection))
 				}
 				sites := matrix.NewSiteHandlerWithInjector(dataDir, domain, inj)
-				h = matrix.NewRouter(mcpHandler, sites)
+				h = matrix.NewRouter(h, sites)
 				log.Printf("serving deployed sites at http://<site>.%s/ (apex listing http://%s/)", sites.Domain(), sites.Domain())
 			}
 

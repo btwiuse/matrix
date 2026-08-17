@@ -29,7 +29,7 @@ MATRIX_URL=http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message \
 MATRIX_SK=sk_... go run ./cmd/matrix
 
 # 本地 deploy + 站点托管:同一进程按 Host 路由,部署出的站点
-# 以 http://<site-id>.localhost/ 访问,MCP 仍在监听地址上
+# 以 http://<site-id>.localhost 访问(无尾斜杠,同正式版),MCP 仍在监听地址上
 go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace --domain localhost
 ```
 

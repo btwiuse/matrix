@@ -90,6 +90,16 @@ func deployErr(t *testing.T, err error) map[string]any {
 	return deployOutput(t, []byte(te.JSON))
 }
 
+// deployIsError reports the ToolError's isError flag.
+func deployIsError(t *testing.T, err error) bool {
+	t.Helper()
+	var te *matrix.ToolError
+	if !errors.As(err, &te) {
+		t.Fatalf("error is %T, want *matrix.ToolError: %v", err, err)
+	}
+	return te.IsError
+}
+
 func TestLocalDeployCopiesAssets(t *testing.T) {
 	h, ws, data := newTestDeploy(t)
 	dist := ws + "/myapp-dist"
@@ -194,6 +204,25 @@ func TestLocalDeployMissingDist(t *testing.T) {
 	if msg, _ := body["message"].(string); !strings.Contains(msg, "exists and contains built files. Error:") {
 		t.Errorf("message = %q, want file gateway style error detail", msg)
 	}
+	// The real server returns this case as a regular result (isError=false).
+	if deployIsError(t, err) {
+		t.Error("missing dist must be a soft error (isError=false), like the real server")
+	}
+}
+
+func TestLocalDeployValidationErrorsAreHard(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	// Path validation errors are flagged isError=true on the real server.
+	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{DistDir: t.TempDir() + "/outside"})
+	deployErr(t, err)
+	if !deployIsError(t, err) {
+		t.Error("dist outside workspace must be a hard error (isError=true), like the real server")
+	}
+	_, err = h.Deploy(context.Background(), &matrix.DeployRequest{DistDir: ws})
+	deployErr(t, err)
+	if !deployIsError(t, err) {
+		t.Error("workspace itself must be a hard error (isError=true), like the real server")
+	}
 }
 
 func TestLocalDeployDefaultsDistDirToWorkspaceDist(t *testing.T) {
@@ -209,17 +238,27 @@ func TestLocalDeployDefaultsDistDirToWorkspaceDist(t *testing.T) {
 	}
 }
 
-func TestLocalDeployRejectsPathTraversal(t *testing.T) {
+func TestLocalDeployIgnoresProjectName(t *testing.T) {
 	h, ws, data := newTestDeploy(t)
 	dist := ws + "/app"
 	writeTree(t, dist, map[string]string{"index.html": "x"})
 
+	// The real server does not validate project_name at all: even
+	// path-traversal-looking values deploy fine and do not determine the
+	// published location.
 	for _, name := range []string{"../evil", "/abs", "a/b", `a\b`} {
-		_, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+		out, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 			ProjectName: name,
 			DistDir:     dist,
 		})
-		deployErr(t, err)
+		if err != nil {
+			t.Errorf("project_name %q must be accepted, like the real server: %v", name, err)
+			continue
+		}
+		body := deployOutput(t, out)
+		if url, _ := body["website_url"].(string); strings.Contains(url, "evil") || strings.Contains(url, "abs") {
+			t.Errorf("project_name %q must not appear in the published URL %q", name, url)
+		}
 	}
 	// Nothing may have escaped the data dir: the parent of data must not
 	// contain any of the attempted project names.
@@ -350,15 +389,52 @@ func TestLocalDeployAbsoluteURLWithDomain(t *testing.T) {
 	}
 	body := deployOutput(t, out)
 	id := deploySiteID(t, body)
-	if url, _ := body["website_url"].(string); url != "http://"+id+".localhost/" {
-		t.Errorf("website_url = %v, want http://%s.localhost/", url, id)
+	// No trailing slash, like the real server's https://<site>.space.mcode.cn.
+	if url, _ := body["website_url"].(string); url != "http://"+id+".localhost" {
+		t.Errorf("website_url = %v, want http://%s.localhost", url, id)
 	}
 	if _, err := os.Stat(data + "/" + id + "/index.html"); err != nil {
 		t.Errorf("assets not under %s: %v", data+"/"+id, err)
 	}
 }
 
-func TestLocalDeployFreshWebsiteIDPerDeployment(t *testing.T) {
+func TestLocalDeployOutputFormatting(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	dist := ws + "/app"
+	writeTree(t, dist, map[string]string{"index.html": "x"})
+
+	out, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+		ProjectName: "app", DistDir: dist,
+	})
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	// Python-style JSON: space after colon, insertion order website_id,
+	// website_url, screenshot_url (not Go's compact alphabetical order).
+	text := string(out)
+	for _, want := range []string{
+		`{"website_id": `,
+		`, "website_url": `,
+		`, "screenshot_url": ""}`, // ends the object, no trailing junk
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output %q missing %q (Python-style formatting required)", text, want)
+		}
+	}
+	if strings.Contains(text, `,"website_id"`) || strings.Contains(text, `":"`) {
+		t.Errorf("output %q must not use compact Go formatting", text)
+	}
+	body := deployOutput(t, out)
+	id := body["website_id"].(float64)
+	if id < 431000000000000 || id >= 432000000000000 {
+		t.Errorf("website_id = %v, want the real server's 431-prefixed 15-digit range", id)
+	}
+	if strings.Contains(text, `"screenshot_url": "", "website_id"`) {
+		t.Errorf("key order must be website_id, website_url, screenshot_url, got %q", text)
+	}
+}
+
+func TestLocalDeployRandomWebsiteIDPerDeployment(t *testing.T) {
 	h, ws, _ := newTestDeploy(t)
 
 	dist1 := ws + "/app-v1"
@@ -378,8 +454,14 @@ func TestLocalDeployFreshWebsiteIDPerDeployment(t *testing.T) {
 	if id1 == id2 {
 		t.Errorf("website_id did not change between deployments: %v", id1)
 	}
-	if id2 <= id1 {
-		t.Errorf("website_id not increasing: %v -> %v", id1, id2)
+	// Ids are random 15-digit numbers with the 431 prefix, not sequential.
+	for _, id := range []float64{id1, id2} {
+		if id < 431000000000000 || id >= 432000000000000 {
+			t.Errorf("website_id = %v, want the real server's 431-prefixed 15-digit range", id)
+		}
+	}
+	if id2 == id1+1 {
+		t.Errorf("website_id must be random, not sequential: %v -> %v", id1, id2)
 	}
 }
 
