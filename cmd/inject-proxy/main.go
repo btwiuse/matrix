@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	htmlinject "html-inject-proxy"
+	htmlinject "github.com/gearshell/inject-proxy"
 
 	"github.com/spf13/cobra"
 )

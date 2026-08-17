@@ -11,6 +11,7 @@ import (
 	"compress/zlib"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,6 +19,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	htmlt "golang.org/x/net/html"
 )
 
 // Config 描述注入代理的静态配置。
@@ -81,13 +84,33 @@ func (i *Injector) Inject(html string) (string, bool) {
 	if strings.Contains(html, i.marker) {
 		return html, false
 	}
-	if p := strings.LastIndex(html, "</body>"); p != -1 {
-		return html[:p] + "\n" + i.marker + "\n" + i.injection + "\n" + html[p:], true
+	var out strings.Builder
+	out.Grow(len(html) + len(i.injection) + 64)
+
+	z := htmlt.NewTokenizer(strings.NewReader(html))
+	inserted := false
+	for {
+		tt := z.Next()
+		if tt == htmlt.ErrorToken {
+			if errors.Is(z.Err(), io.EOF) {
+				break
+			}
+			// 流不可解析:原样放行,不冒险改写
+			return html, false
+		}
+		if tt == htmlt.EndTagToken && !inserted {
+			switch z.Token().Data {
+			case "body", "html":
+				out.WriteString("\n" + i.marker + "\n" + i.injection)
+				inserted = true
+			}
+		}
+		out.Write(z.Raw())
 	}
-	if p := strings.LastIndex(html, "</html>"); p != -1 {
-		return html[:p] + "\n" + i.marker + "\n" + i.injection + "\n" + html[p:], true
+	if !inserted {
+		out.WriteString("\n" + i.marker + "\n" + i.injection)
 	}
-	return html + "\n" + i.marker + "\n" + i.injection, true
+	return out.String(), true
 }
 
 // ModifyResponse 实现 httputil.ReverseProxy 的响应改写钩子。
