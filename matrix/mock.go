@@ -162,11 +162,11 @@ func (m *MockHandler) ImagesList(_ context.Context, in *ImagesListRequest) (Outp
 }
 
 func (m *MockHandler) Deploy(_ context.Context, in *DeployRequest) (Output, error) {
+	// Same output shape as the real server: website_id/website_url/screenshot_url.
 	return mockOutput(map[string]any{
-		"status":       "ok",
-		"url":          "https://mock.example.com/",
-		"project_name": in.ProjectName,
-		"dist_dir":     in.DistDir,
+		"website_id":     431000000000001,
+		"website_url":    "https://mock.example.com/",
+		"screenshot_url": "",
 	})
 }
 

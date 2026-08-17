@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -74,6 +75,15 @@ func register[In any](server *mcp.Server, spec ToolSpec, call func(context.Conte
 	handle := func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 		out, err := call(ctx, &in)
 		if err != nil {
+			// ToolError carries the exact JSON body the real server puts in
+			// content[0].text of an error result (with isError=true).
+			var te *ToolError
+			if errors.As(err, &te) {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: te.JSON}},
+					IsError: true,
+				}, nil, nil
+			}
 			return nil, nil, fmt.Errorf("%s: %w", spec.Name, err)
 		}
 		return &mcp.CallToolResult{

@@ -35,7 +35,7 @@ go run ./cmd/matrix            # mode=auto picks proxy when URL+SK are set
 go run ./cmd/matrix -http :8080 -mode mock
 
 # Local deploy: dist assets are copied into ./data/<project>
-go run ./cmd/matrix -mode mock -data-dir ./data
+go run ./cmd/matrix -mode mock -data-dir ./data -workspace-dir /workspace
 ```
 
 ## Flags
@@ -49,6 +49,7 @@ go run ./cmd/matrix -mode mock -data-dir ./data
 | `-http` | empty | Address for streamable HTTP (e.g. `:8080`); empty = stdio |
 | `-timeout` | `5m` | Upstream request timeout (proxy mode) |
 | `-data-dir` | `$MATRIX_DATA_DIR` | When set, `deploy` copies the dist directory into `data-dir/<project>` locally instead of forwarding/mocking; a future HTTP server can serve this directory |
+| `-workspace-dir` | `$MATRIX_WORKSPACE` or `/workspace` | Sandbox root; `deploy` rejects a `dist_dir` outside it, like the real server |
 
 ## Verify
 

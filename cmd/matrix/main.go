@@ -21,13 +21,14 @@ import (
 
 func main() {
 	var (
-		url     = flag.String("url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
-		token   = flag.String("token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
-		source  = flag.String("source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
-		mode    = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
-		addr    = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
-		timeout = flag.Duration("timeout", 5*time.Minute, "upstream request timeout for proxy mode")
-		dataDir = flag.String("data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
+		url          = flag.String("url", os.Getenv("MATRIX_URL"), "real matrix MCP HTTP endpoint (default $MATRIX_URL)")
+		token        = flag.String("token", os.Getenv("MATRIX_SK"), "matrix sk token (default $MATRIX_SK)")
+		source       = flag.String("source", envOr("MATRIX_SOURCE", "hermes"), "source label (default $MATRIX_SOURCE or hermes)")
+		mode         = flag.String("mode", "auto", "handler mode: auto | proxy | mock")
+		addr         = flag.String("http", "", "if set, serve streamable HTTP on this address (e.g. :8080)")
+		timeout      = flag.Duration("timeout", 5*time.Minute, "upstream request timeout for proxy mode")
+		dataDir      = flag.String("data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory (empty = deploy is forwarded/mocked like the rest)")
+		workspaceDir = flag.String("workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
 	)
 	flag.Parse()
 
@@ -46,8 +47,11 @@ func main() {
 		}
 	}
 	if *dataDir != "" {
-		handler = matrix.NewLocalDeploy(handler, *dataDir)
-		log.Printf("deploy writes assets under %s", *dataDir)
+		handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{
+			DataDir:      *dataDir,
+			WorkspaceDir: *workspaceDir,
+		})
+		log.Printf("deploy writes assets under %s (workspace %s)", *dataDir, *workspaceDir)
 	}
 
 	server, err := matrix.NewServer(handler)

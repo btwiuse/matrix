@@ -30,10 +30,14 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
 2. **新增 matrix 工具五步**: schema.json(重新抓取) → types.go(结构体) →
    handler.go(接口方法) → server.go(regXxx) → proxy.go + mock.go(实现)。
 3. 所有 .go 文件无注释要求(用户偏好代码自解释),中文注释可留但别废话。
-4. **本地 deploy**: `matrix/deploy.go` 的 `LocalDeploy` 包装任意 Handler,只覆写 Deploy,
-   把 dist 拷贝到 `data-dir/<project>`(project_name 缺省用 dist 目录名;跳过 .git/node_modules/符号链接;
-   无 index.html 给 warning 不报错;每次部署清空旧版本)。main.go `-data-dir` 开启,url 暂返回
-   `/data/<project>/` 占位,http server 以后做。
+4. **本地 deploy(与正式版完全对齐,2026-08-18 实测)**: `matrix/deploy.go` 的 `LocalDeploy` 包装任意
+   Handler,只覆写 Deploy。对齐点:① dist_dir 必须位于 workspace(默认 /workspace,`-workspace-dir`
+   可配)子目录,workspace 本身也不行,报错措辞逐字照抄正式版;② 缺 dist_dir 默认 `<workspace>/dist`;
+   ③ 成功输出形状 `{"website_id","website_url","screenshot_url"}`,`website_url` 暂为 `/data/<project>/`
+   占位(http server 以后做);④ 错误走 `ToolError` → content 为 JSON 文本 + isError=true(register 已支持),
+   与正式版一致;⑤ 无 index.html 不报 warning(实测正式版无 warning,尽管 schema 描述说有);
+   ⑥ 每次部署 website_id 递增(基准 431000000000000),同项目覆盖旧版本(本地无 CDN 版本化)。
+   跳过 .git/node_modules/符号链接。
 4. token/密钥一律不进 git:`matrix.env` 在 `/root/.config/crush/`,600 权限。
 5. 提交信息: 主题行 ≤72 字符,解释 why;署名 `Crush <crush@local>`。
 

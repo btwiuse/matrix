@@ -192,7 +192,7 @@ func TestCallToolAllTools(t *testing.T) {
 			"queries": []map[string]any{{"query": "cat", "prompt": "a cat photo", "task_name": "cat"}},
 		}, "results", ""},
 		{"images_list", map[string]any{}, "", "# Total Images:"},
-		{"deploy", map[string]any{"dist_dir": "dist"}, "url", ""},
+		{"deploy", map[string]any{"dist_dir": "dist"}, "website_url", ""},
 		{"init_react_project", map[string]any{"project_name": "p", "target_dir": "/tmp/p"}, "status", ""},
 		{"deploy_html_presentation", map[string]any{"slides_dir": "/tmp/slides"}, "url", ""},
 		{"upload_to_cdn", map[string]any{"file_path": "/tmp/i.png"}, "cdn_url", ""},

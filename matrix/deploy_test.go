@@ -3,12 +3,30 @@ package matrix_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gearshell/inject-proxy/matrix"
 )
+
+// newTestDeploy builds a LocalDeploy with an isolated workspace+data dir.
+func newTestDeploy(t *testing.T) (*matrix.LocalDeploy, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	ws := root + "/workspace"
+	data := root + "/data"
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), matrix.DeployConfig{
+		DataDir:      data,
+		WorkspaceDir: ws,
+	})
+	return h, ws, data
+}
 
 func writeTree(t *testing.T, root string, files map[string]string) {
 	t.Helper()
@@ -41,9 +59,23 @@ func deployOutput(t *testing.T, out matrix.Output) map[string]any {
 	return body
 }
 
+// deployErr asserts the returned error is a JSON tool error and returns its
+// parsed body.
+func deployErr(t *testing.T, err error) map[string]any {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected tool error, got nil")
+	}
+	var te *matrix.ToolError
+	if !errors.As(err, &te) {
+		t.Fatalf("error is %T, want *matrix.ToolError: %v", err, err)
+	}
+	return deployOutput(t, []byte(te.JSON))
+}
+
 func TestLocalDeployCopiesAssets(t *testing.T) {
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
-	dist := t.TempDir()
+	h, ws, data := newTestDeploy(t)
+	dist := ws + "/myapp-dist"
 	writeTree(t, dist, map[string]string{
 		"index.html":       "<h1>hello</h1>",
 		"assets/app.js":    "console.log('app')",
@@ -58,20 +90,23 @@ func TestLocalDeployCopiesAssets(t *testing.T) {
 		t.Fatalf("Deploy: %v", err)
 	}
 	body := deployOutput(t, out)
-	if body["status"] != "ok" {
-		t.Errorf("status = %v, want ok", body["status"])
+	// Output shape must match the real server: website_id/website_url/screenshot_url.
+	if _, ok := body["website_id"].(float64); !ok {
+		t.Errorf("website_id = %v (%T), want number", body["website_id"], body["website_id"])
 	}
-	if url := body["url"]; url != "/data/myapp/" {
-		t.Errorf("url = %v, want /data/myapp/", url)
+	if url := body["website_url"]; url != "/data/myapp/" {
+		t.Errorf("website_url = %v, want /data/myapp/", url)
 	}
-	if body["files"] != float64(3) {
-		t.Errorf("files = %v, want 3", body["files"])
+	if ss := body["screenshot_url"]; ss != "" {
+		t.Errorf("screenshot_url = %v, want empty", ss)
 	}
-	if _, ok := body["warning"]; ok {
-		t.Errorf("unexpected warning: %v", body["warning"])
+	for _, k := range []string{"status", "url", "warning", "files", "size_bytes"} {
+		if _, ok := body[k]; ok {
+			t.Errorf("unexpected key %q in output (must match real shape): %v", k, body)
+		}
 	}
 
-	target := h.DataDir + "/myapp"
+	target := data + "/myapp"
 	if readFile(t, target+"/index.html") != "<h1>hello</h1>" {
 		t.Errorf("index.html content mismatch")
 	}
@@ -84,30 +119,76 @@ func TestLocalDeployCopiesAssets(t *testing.T) {
 }
 
 func TestLocalDeployDefaultsProjectNameToDistBasename(t *testing.T) {
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
-	dist := t.TempDir() + "/my-dist"
-	if err := os.MkdirAll(dist, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	h, ws, data := newTestDeploy(t)
+	dist := ws + "/my-dist"
 	writeTree(t, dist, map[string]string{"index.html": "x"})
 
 	out, err := h.Deploy(context.Background(), &matrix.DeployRequest{DistDir: dist})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
-	body := deployOutput(t, out)
-	if body["project_name"] != "my-dist" {
-		t.Errorf("project_name = %v, want my-dist", body["project_name"])
-	}
-	if _, err := os.Stat(h.DataDir + "/my-dist/index.html"); err != nil {
+	if _, err := os.Stat(data + "/my-dist/index.html"); err != nil {
 		t.Errorf("asset not at data/my-dist: %v", err)
+	}
+	if ss := deployOutput(t, out)["screenshot_url"]; ss != "" {
+		t.Errorf("screenshot_url = %v, want empty", ss)
+	}
+}
+
+func TestLocalDeployRejectsDistOutsideWorkspace(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	dist := t.TempDir() + "/outside"
+	writeTree(t, dist, map[string]string{"index.html": "x"})
+
+	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{DistDir: dist})
+	body := deployErr(t, err)
+	msg, _ := body["error"].(string)
+	if msg == "" || !strings.Contains(msg, "must be a sub-directory under "+ws) {
+		t.Errorf("error message = %q, want workspace constraint", msg)
+	}
+}
+
+func TestLocalDeployRejectsWorkspaceItself(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	// The workspace root itself is not accepted, like the real server.
+	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{DistDir: ws})
+	body := deployErr(t, err)
+	if msg, _ := body["error"].(string); !strings.Contains(msg, "not accepted") {
+		t.Errorf("error message = %q, want 'not accepted'", msg)
+	}
+}
+
+func TestLocalDeployMissingDist(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{
+		ProjectName: "app",
+		DistDir:     ws + "/nope",
+	})
+	body := deployErr(t, err)
+	if body["error"] != "dist directory does not exist" {
+		t.Errorf("error = %v, want 'dist directory does not exist'", body["error"])
+	}
+	if body["message"] == nil {
+		t.Errorf("expected message key in error body, got %v", body)
+	}
+}
+
+func TestLocalDeployDefaultsDistDirToWorkspaceDist(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	// Missing dist_dir defaults to <workspace>/dist, like the real server.
+	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{ProjectName: "app"})
+	body := deployErr(t, err)
+	if body["error"] != "dist directory does not exist" {
+		t.Errorf("error = %v, want 'dist directory does not exist' (default <workspace>/dist)", body["error"])
+	}
+	if msg, _ := body["message"].(string); !strings.Contains(msg, ws+"/dist") {
+		t.Errorf("message = %q, want default path %s/dist", msg, ws)
 	}
 }
 
 func TestLocalDeployRejectsPathTraversal(t *testing.T) {
-	data := t.TempDir()
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), data)
-	dist := t.TempDir()
+	h, ws, data := newTestDeploy(t)
+	dist := ws + "/app"
 	writeTree(t, dist, map[string]string{"index.html": "x"})
 
 	for _, name := range []string{"../evil", "/abs", "a/b", `a\b`} {
@@ -115,9 +196,7 @@ func TestLocalDeployRejectsPathTraversal(t *testing.T) {
 			ProjectName: name,
 			DistDir:     dist,
 		})
-		if err == nil {
-			t.Errorf("project_name %q: expected error", name)
-		}
+		deployErr(t, err)
 	}
 	// Nothing may have escaped the data dir: the parent of data must not
 	// contain any of the attempted project names.
@@ -130,9 +209,8 @@ func TestLocalDeployRejectsPathTraversal(t *testing.T) {
 }
 
 func TestLocalDeploySkipsDevDirsAndSymlinks(t *testing.T) {
-	data := t.TempDir()
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), data)
-	dist := t.TempDir()
+	h, ws, data := newTestDeploy(t)
+	dist := ws + "/app"
 	writeTree(t, dist, map[string]string{
 		"index.html":       "x",
 		"node_modules/pkg": "should not copy",
@@ -166,11 +244,13 @@ func TestLocalDeploySkipsDevDirsAndSymlinks(t *testing.T) {
 	}
 }
 
-func TestLocalDeployWarnsWithoutIndexHTML(t *testing.T) {
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
-	dist := t.TempDir()
+func TestLocalDeployNoIndexHTMLSucceedsWithoutWarning(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	dist := ws + "/app"
 	writeTree(t, dist, map[string]string{"robots.txt": "x"})
 
+	// The real server deploys successfully with no warning when index.html
+	// is missing; the replica must behave identically.
 	out, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app",
 		DistDir:     dist,
@@ -179,29 +259,18 @@ func TestLocalDeployWarnsWithoutIndexHTML(t *testing.T) {
 		t.Fatalf("Deploy: %v", err)
 	}
 	body := deployOutput(t, out)
-	if body["status"] != "ok" {
-		t.Errorf("status = %v, want ok (warning, not error)", body["status"])
+	if _, ok := body["warning"]; ok {
+		t.Errorf("unexpected warning key: %v", body)
 	}
-	if body["warning"] == nil {
-		t.Errorf("expected warning for missing index.html, got %v", body)
-	}
-}
-
-func TestLocalDeployMissingDist(t *testing.T) {
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
-	_, err := h.Deploy(context.Background(), &matrix.DeployRequest{
-		ProjectName: "app",
-		DistDir:     t.TempDir() + "/nope",
-	})
-	if err == nil {
-		t.Fatal("expected error for missing dist_dir")
+	if _, ok := body["website_id"]; !ok {
+		t.Errorf("expected website_id, got %v", body)
 	}
 }
 
 func TestLocalDeployReplacesPreviousRelease(t *testing.T) {
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
+	h, ws, data := newTestDeploy(t)
 
-	dist1 := t.TempDir()
+	dist1 := ws + "/app-v1"
 	writeTree(t, dist1, map[string]string{"index.html": "v1", "old.txt": "stale"})
 	if _, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app", DistDir: dist1,
@@ -209,7 +278,7 @@ func TestLocalDeployReplacesPreviousRelease(t *testing.T) {
 		t.Fatalf("deploy v1: %v", err)
 	}
 
-	dist2 := t.TempDir()
+	dist2 := ws + "/app-v2"
 	writeTree(t, dist2, map[string]string{"index.html": "v2"})
 	if _, err := h.Deploy(context.Background(), &matrix.DeployRequest{
 		ProjectName: "app", DistDir: dist2,
@@ -217,7 +286,7 @@ func TestLocalDeployReplacesPreviousRelease(t *testing.T) {
 		t.Fatalf("deploy v2: %v", err)
 	}
 
-	target := h.DataDir + "/app"
+	target := data + "/app"
 	if readFile(t, target+"/index.html") != "v2" {
 		t.Errorf("index.html = %q, want v2", readFile(t, target+"/index.html"))
 	}
@@ -226,9 +295,34 @@ func TestLocalDeployReplacesPreviousRelease(t *testing.T) {
 	}
 }
 
+func TestLocalDeployFreshWebsiteIDPerDeployment(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+
+	dist1 := ws + "/app-v1"
+	writeTree(t, dist1, map[string]string{"index.html": "v1"})
+	out1, err := h.Deploy(context.Background(), &matrix.DeployRequest{ProjectName: "app", DistDir: dist1})
+	if err != nil {
+		t.Fatalf("deploy 1: %v", err)
+	}
+	dist2 := ws + "/app-v2"
+	writeTree(t, dist2, map[string]string{"index.html": "v2"})
+	out2, err := h.Deploy(context.Background(), &matrix.DeployRequest{ProjectName: "app", DistDir: dist2})
+	if err != nil {
+		t.Fatalf("deploy 2: %v", err)
+	}
+	id1 := deployOutput(t, out1)["website_id"].(float64)
+	id2 := deployOutput(t, out2)["website_id"].(float64)
+	if id1 == id2 {
+		t.Errorf("website_id did not change between deployments: %v", id1)
+	}
+	if id2 <= id1 {
+		t.Errorf("website_id not increasing: %v -> %v", id1, id2)
+	}
+}
+
 func TestLocalDeployOtherToolsDelegate(t *testing.T) {
 	// Tools other than deploy must keep working through the wrapped handler.
-	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), t.TempDir())
+	h, _, _ := newTestDeploy(t)
 	out, err := h.GetVoiceList(context.Background(), &matrix.GetVoiceListRequest{})
 	if err != nil {
 		t.Fatalf("GetVoiceList: %v", err)
