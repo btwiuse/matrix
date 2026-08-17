@@ -54,17 +54,19 @@ func main() {
 					return err
 				}
 				handler = h
-			default: // auto
-				if url != "" && token != "" {
-					h, err := proxyHandler(url, token, source, timeout)
-					if err != nil {
-						return err
-					}
-					handler = h
-				} else {
+			case "auto":
+				if url == "" || token == "" {
 					handler = matrix.NewMockHandler()
 					log.Printf("no --url/--token given, using mock handler")
+					break
 				}
+				h, err := proxyHandler(url, token, source, timeout)
+				if err != nil {
+					return err
+				}
+				handler = h
+			default:
+				return fmt.Errorf("unknown mode %q (want auto, proxy or mock)", mode)
 			}
 			if dataDir != "" {
 				handler = matrix.NewLocalDeploy(handler, matrix.DeployConfig{

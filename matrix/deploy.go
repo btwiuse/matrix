@@ -27,6 +27,11 @@ func toolError(v any) error {
 	return &ToolError{JSON: string(b)}
 }
 
+// toolErr is shorthand for a tool error whose body is {"error": message}.
+func toolErr(format string, args ...any) error {
+	return toolError(map[string]string{"error": fmt.Sprintf(format, args...)})
+}
+
 // DeployConfig configures the local deploy implementation.
 type DeployConfig struct {
 	// DataDir is the root directory that deployed assets are copied into,
@@ -102,7 +107,7 @@ var ignoredDirs = map[string]bool{
 // error shape, and a missing index.html does not produce a warning.
 func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, error) {
 	if in == nil {
-		return nil, toolError(map[string]string{"error": "nil request"})
+		return nil, toolErr("nil request")
 	}
 
 	dist := in.DistDir
@@ -111,12 +116,12 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 	}
 	abs, err := filepath.Abs(dist)
 	if err != nil {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("resolving dist_dir: %v", err)})
+		return nil, toolErr("resolving dist_dir: %v", err)
 	}
 	if rel, err := filepath.Rel(d.cfg.WorkspaceDir, abs); err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf(
+		return nil, toolErr(
 			"dist_dir must be a sub-directory under %s, e.g. '%s/dist' or '%s/build'. Got: '%s'. Note: '%s' itself is not accepted — please append a sub-path (your built output directory, typically '%s/dist').",
-			d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, abs, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir)})
+			d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir, abs, d.cfg.WorkspaceDir, d.cfg.WorkspaceDir)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
@@ -126,28 +131,28 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		})
 	}
 	if !info.IsDir() {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("dist_dir %s is not a directory", abs)})
+		return nil, toolErr("dist_dir %s is not a directory", abs)
 	}
 
 	// project_name is validated but, like on the real server, does not
 	// determine the published location.
 	if name := in.ProjectName; name != "" && !validDirName(name) {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("invalid project_name %q", name)})
+		return nil, toolErr("invalid project_name %q", name)
 	}
 	if d.cfg.DataDir == "" {
-		return nil, toolError(map[string]string{"error": "data dir not configured"})
+		return nil, toolErr("data dir not configured")
 	}
 	// Publishing a site is append-only, like the real server: every
 	// deployment gets its own directory and URL, previous releases stay.
 	site := newSiteID(12)
 	target := filepath.Join(d.cfg.DataDir, site)
 	if err := os.MkdirAll(target, 0o755); err != nil {
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("creating %s: %v", target, err)})
+		return nil, toolErr("creating %s: %v", target, err)
 	}
 	st := copyStats{}
 	if err := copyTree(abs, target, &st); err != nil {
 		os.RemoveAll(target)
-		return nil, toolError(map[string]string{"error": fmt.Sprintf("copying %s: %v", abs, err)})
+		return nil, toolErr("copying %s: %v", abs, err)
 	}
 
 	id := atomic.AddInt64(&d.seq, 1) + websiteIDBase

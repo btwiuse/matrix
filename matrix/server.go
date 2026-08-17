@@ -24,11 +24,7 @@ type ToolSpec struct {
 // LoadSpecs parses the embedded schema.json (captured from the real matrix
 // MCP server) into tool definitions.
 func LoadSpecs() ([]ToolSpec, error) {
-	var raw map[string]struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description"`
-		InputSchema json.RawMessage `json:"inputSchema"`
-	}
+	var raw map[string]ToolSpec
 	if err := json.Unmarshal(schemaJSON, &raw); err != nil {
 		return nil, fmt.Errorf("parsing embedded schema: %w", err)
 	}
@@ -99,173 +95,84 @@ func register[In any](server *mcp.Server, spec ToolSpec, call func(context.Conte
 }
 
 // registerAll wires every one of the 22 tools to the Handler interface.
+// Each binding is a single line: the typed Handler method is registered
+// under its exact schema name.
 func registerAll(server *mcp.Server, byName map[string]ToolSpec, h Handler) error {
-	regs := []struct {
-		name string
-		fn   func(*mcp.Server, ToolSpec, Handler) error
-	}{
-		{"image_synthesize", regImageSynthesize},
-		{"gen_videos", regGenVideos},
-		{"batch_text_to_video", regBatchTextToVideo},
-		{"batch_image_to_video", regBatchImageToVideo},
-		{"get_voice_list", regGetVoiceList},
-		{"batch_text_to_audio", regBatchTextToAudio},
-		{"batch_text_to_music", regBatchTextToMusic},
-		{"synthesize_speech", regSynthesizeSpeech},
-		{"batch_synthesize_speech", regBatchSynthesizeSpeech},
-		{"listen_audio", regListenAudio},
-		{"images_understand", regImagesUnderstand},
-		{"audios_understand", regAudiosUnderstand},
-		{"videos_understand", regVideosUnderstand},
-		{"extract_content_from_websites", regExtractContentFromWebsites},
-		{"batch_web_search", regBatchWebSearch},
-		{"image_reverse_search", regImageReverseSearch},
-		{"images_search_and_download", regImagesSearchAndDownload},
-		{"images_list", regImagesList},
-		{"deploy", regDeploy},
-		{"init_react_project", regInitReactProject},
-		{"deploy_html_presentation", regDeployHTMLPresentation},
-		{"upload_to_cdn", regUploadToCDN},
+	if err := reg1(server, byName, "image_synthesize", h.ImageSynthesize); err != nil {
+		return err
 	}
-	for _, r := range regs {
-		spec, ok := byName[r.name]
-		if !ok {
-			return fmt.Errorf("tool %q missing from embedded schema", r.name)
-		}
-		if err := r.fn(server, spec, h); err != nil {
-			return err
-		}
+	if err := reg1(server, byName, "gen_videos", h.GenVideos); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_text_to_video", h.BatchTextToVideo); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_image_to_video", h.BatchImageToVideo); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "get_voice_list", h.GetVoiceList); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_text_to_audio", h.BatchTextToAudio); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_text_to_music", h.BatchTextToMusic); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "synthesize_speech", h.SynthesizeSpeech); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_synthesize_speech", h.BatchSynthesizeSpeech); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "listen_audio", h.ListenAudio); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "images_understand", h.ImagesUnderstand); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "audios_understand", h.AudiosUnderstand); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "videos_understand", h.VideosUnderstand); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "extract_content_from_websites", h.ExtractContentFromWebsites); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "batch_web_search", h.BatchWebSearch); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "image_reverse_search", h.ImageReverseSearch); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "images_search_and_download", h.ImagesSearchAndDownload); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "images_list", h.ImagesList); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "deploy", h.Deploy); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "init_react_project", h.InitReactProject); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "deploy_html_presentation", h.DeployHTMLPresentation); err != nil {
+		return err
+	}
+	if err := reg1(server, byName, "upload_to_cdn", h.UploadToCDN); err != nil {
+		return err
 	}
 	return nil
 }
-func regImageSynthesize(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ImageSynthesizeRequest) (Output, error) {
-		return h.ImageSynthesize(ctx, in)
-	})
-}
 
-func regGenVideos(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *GenVideosRequest) (Output, error) {
-		return h.GenVideos(ctx, in)
-	})
-}
-
-func regBatchTextToVideo(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchTextToVideoRequest) (Output, error) {
-		return h.BatchTextToVideo(ctx, in)
-	})
-}
-
-func regBatchImageToVideo(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchImageToVideoRequest) (Output, error) {
-		return h.BatchImageToVideo(ctx, in)
-	})
-}
-
-func regGetVoiceList(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *GetVoiceListRequest) (Output, error) {
-		return h.GetVoiceList(ctx, in)
-	})
-}
-
-func regBatchTextToAudio(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchTextToAudioRequest) (Output, error) {
-		return h.BatchTextToAudio(ctx, in)
-	})
-}
-
-func regBatchTextToMusic(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchTextToMusicRequest) (Output, error) {
-		return h.BatchTextToMusic(ctx, in)
-	})
-}
-
-func regSynthesizeSpeech(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *SynthesizeSpeechRequest) (Output, error) {
-		return h.SynthesizeSpeech(ctx, in)
-	})
-}
-
-func regBatchSynthesizeSpeech(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchSynthesizeSpeechRequest) (Output, error) {
-		return h.BatchSynthesizeSpeech(ctx, in)
-	})
-}
-
-func regListenAudio(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ListenAudioRequest) (Output, error) {
-		return h.ListenAudio(ctx, in)
-	})
-}
-
-func regImagesUnderstand(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ImagesUnderstandRequest) (Output, error) {
-		return h.ImagesUnderstand(ctx, in)
-	})
-}
-
-func regAudiosUnderstand(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *AudiosUnderstandRequest) (Output, error) {
-		return h.AudiosUnderstand(ctx, in)
-	})
-}
-
-func regVideosUnderstand(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *VideosUnderstandRequest) (Output, error) {
-		return h.VideosUnderstand(ctx, in)
-	})
-}
-
-func regExtractContentFromWebsites(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ExtractContentFromWebsitesRequest) (Output, error) {
-		return h.ExtractContentFromWebsites(ctx, in)
-	})
-}
-
-func regBatchWebSearch(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *BatchWebSearchRequest) (Output, error) {
-		return h.BatchWebSearch(ctx, in)
-	})
-}
-
-func regImageReverseSearch(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ImageReverseSearchRequest) (Output, error) {
-		return h.ImageReverseSearch(ctx, in)
-	})
-}
-
-func regImagesSearchAndDownload(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ImagesSearchAndDownloadRequest) (Output, error) {
-		return h.ImagesSearchAndDownload(ctx, in)
-	})
-}
-
-func regImagesList(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *ImagesListRequest) (Output, error) {
-		return h.ImagesList(ctx, in)
-	})
-}
-
-func regDeploy(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *DeployRequest) (Output, error) {
-		return h.Deploy(ctx, in)
-	})
-}
-
-func regInitReactProject(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *InitReactProjectRequest) (Output, error) {
-		return h.InitReactProject(ctx, in)
-	})
-}
-
-func regDeployHTMLPresentation(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *DeployHTMLPresentationRequest) (Output, error) {
-		return h.DeployHTMLPresentation(ctx, in)
-	})
-}
-
-func regUploadToCDN(s *mcp.Server, spec ToolSpec, h Handler) error {
-	return register(s, spec, func(ctx context.Context, in *UploadToCDNRequest) (Output, error) {
-		return h.UploadToCDN(ctx, in)
-	})
+// reg1 looks up the tool spec by name and registers the typed handler call
+// under the schema stored for that name.
+func reg1[In any](server *mcp.Server, byName map[string]ToolSpec, name string, call func(context.Context, *In) (Output, error)) error {
+	spec, ok := byName[name]
+	if !ok {
+		return fmt.Errorf("tool %q missing from embedded schema", name)
+	}
+	return register(server, spec, call)
 }
