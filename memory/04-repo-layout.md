@@ -13,7 +13,8 @@ Git: 本仓库,main 分支;身份用 `Crush <crush@local>`(仓库级,勿动 glob
 ├── inject-ball.html      # 注入片段示例
 ├── cmd/
 │   ├── inject-proxy/     # cobra CLI: --upstream --port --inject/--inject-html
-│   └── matrix/           # matrix MCP 复刻入口 (cobra CLI): --mode --url --token --http
+│   ├── matrix/           # matrix MCP 复刻入口 (cobra CLI): --mode --url --token --http
+│   └── deploy-server/    # cobra CLI: 二级域名 site server (--data-dir --domain --http)
 ├── matrix/               # matrix 复刻库(独立包,非根包!)
 │   ├── schema.json       # 真实 server tools/list 抓取(go:embed)
 │   ├── types.go handler.go server.go proxy.go mock.go deploy.go

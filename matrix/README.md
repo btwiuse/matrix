@@ -18,7 +18,9 @@ backend (`DIFFS: 0`).
 | `proxy.go` | `ProxyHandler`: forwards every call to the real matrix HTTP endpoint |
 | `mock.go` | `MockHandler`: deterministic offline responses (same output shapes) |
 | `deploy.go` | `LocalDeploy`: local `deploy` that copies dist assets into `data/<project>` |
+| `site.go` | `SiteHandler`: serves `data/<project>` at `http://<project>.<domain>/` |
 | `cmd/matrix` | Entry point (cobra CLI): stdio or streamable HTTP |
+| `cmd/deploy-server` | Site server (cobra CLI): subdomain hosting for deployed sites |
 
 ## Run
 
@@ -37,6 +39,24 @@ go run ./cmd/matrix --http :8080 --mode mock
 # Local deploy: dist assets are copied into ./data/<project>
 go run ./cmd/matrix --mode mock --data-dir ./data --workspace-dir /workspace
 ```
+
+## Site server (deploy-server)
+
+Serves what `deploy` wrote into `--data-dir`: each project becomes a
+second-level domain.
+
+```sh
+# Serve ./data at http://<project>.localhost/ (apex lists all sites)
+go run ./cmd/deploy-server --data-dir ./data --domain localhost --http :8080
+```
+
+- `http://<project>.<domain>/` serves `data-dir/<project>/` (static files)
+- the bare apex (`http://localhost/`) lists the deployed projects
+- unknown projects, wrong domains and deeper subdomains are 404s
+- run it alongside `cmd/matrix --data-dir <same-dir>` for the full
+deploy → serve loop (`*.localhost` resolves to loopback in modern
+browsers; for other domains point the wildcard DNS record at this host)
+
 
 ## Flags
 
