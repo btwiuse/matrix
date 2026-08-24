@@ -11,15 +11,15 @@ description: |
 ## Via the deploy command (recommended)
 
 ```sh
-go run ./cmd/matrix deploy ./dist
-go run ./cmd/matrix deploy site.tar.gz
-go run ./cmd/matrix deploy --json ./dist
+matrix deploy ./dist
+matrix deploy site.tar.gz
+matrix deploy --json ./dist
 ```
 
 The standalone form works the same:
 
 ```sh
-go run ./cmd/deploy ./dist
+deploy ./dist
 ```
 
 Flags: `--server URL` (default `https://matrix.k0s.io`, or `$MATRIX_SERVER`),
