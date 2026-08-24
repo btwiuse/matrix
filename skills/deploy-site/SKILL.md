@@ -50,3 +50,6 @@ curl -X POST --data-binary @site.tar.gz -H 'Content-Type: application/gzip'   ht
 - Every deployment gets a fresh random URL; previous sites stay live.
 - Errors return HTTP 400 with a JSON error body, e.g.
   `{"error": "extracting archive: unsupported archive format (want .tar.gz or .zip)"}`.
+- Open Graph preview images must use a root-absolute path, e.g.
+  `<meta property="og:image" content="/images/cover.svg" />`: relative
+  paths are not resolved by some browsers/social scrapers.
