@@ -187,7 +187,10 @@ type DeployRequest struct {
 // carries the built site with index.html at its root, and is deployed the
 // same way deploy publishes a workspace directory.
 type RemoteDeployRequest struct {
-	// ArchiveURL is an http(s) URL the server downloads the archive from.
+	// ArchiveURL is an http(s) URL the server downloads the archive from,
+	// or a /data/<site>/<file> path previously returned by upload_to_cdn
+	// (in which case the server reads the file locally, no network round
+	// trip).
 	ArchiveURL string `json:"archive_url,omitempty"`
 	// ArchiveData is the base64-encoded archive, for callers that cannot
 	// expose a public URL.

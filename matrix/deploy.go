@@ -272,7 +272,7 @@ func (d *LocalDeploy) RemoteDeploy(ctx context.Context, in *RemoteDeployRequest)
 		return nil, toolErr("provide either archive_url or archive_data")
 	}
 
-	data, err := fetchArchive(ctx, in)
+	data, err := fetchArchive(ctx, in, d.cfg.DataDir)
 	if err != nil {
 		return nil, toolErr("%v", err)
 	}
@@ -304,10 +304,28 @@ func (d *LocalDeploy) RemoteDeploy(ctx context.Context, in *RemoteDeployRequest)
 	return deploySuccess(newWebsiteID(), url), nil
 }
 
-// fetchArchive resolves the archive bytes from the request: a downloaded
-// URL (capped at 64 MiB) or a base64-encoded body.
-func fetchArchive(ctx context.Context, in *RemoteDeployRequest) ([]byte, error) {
+// fetchArchive resolves the archive bytes from the request: a /data/.../
+// path published by upload_to_cdn (read locally, no network), a downloaded
+// URL (capped at 64 MiB), or a base64-encoded body.
+func fetchArchive(ctx context.Context, in *RemoteDeployRequest, dataDir string) ([]byte, error) {
 	if in.ArchiveURL != "" {
+		if strings.HasPrefix(in.ArchiveURL, "/data/") {
+			if dataDir == "" {
+				return nil, fmt.Errorf("data dir not configured")
+			}
+			full := filepath.Join(dataDir, filepath.FromSlash(strings.TrimPrefix(in.ArchiveURL, "/data/")))
+			if rel, err := filepath.Rel(dataDir, full); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return nil, fmt.Errorf("archive path %q escapes the data dir", in.ArchiveURL)
+			}
+			data, err := os.ReadFile(full)
+			if err != nil {
+				return nil, fmt.Errorf("reading uploaded archive: %v", err)
+			}
+			if len(data) > 64<<20 {
+				return nil, fmt.Errorf("archive exceeds 64 MiB")
+			}
+			return data, nil
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, in.ArchiveURL, nil)
 		if err != nil {
 			return nil, fmt.Errorf("parsing archive_url: %v", err)
@@ -334,6 +352,51 @@ func fetchArchive(ctx context.Context, in *RemoteDeployRequest) ([]byte, error) 
 		return nil, fmt.Errorf("archive_data is not valid base64: %v", err)
 	}
 	return data, nil
+}
+
+// UploadToCDN uploads a file from the server (any absolute path) to the
+// local CDN: the file is published under a fresh random subdomain and the
+// returned cdn_url is publicly reachable. This makes files on the server
+// usable by external services, matching the real tool's contract ("Local
+// file paths are NOT accessible outside the agent environment. Only CDN
+// URLs can be accessed by external services.").
+func (d *LocalDeploy) UploadToCDN(_ context.Context, in *UploadToCDNRequest) (Output, error) {
+	if in == nil {
+		return nil, toolErr("nil request")
+	}
+	if d.cfg.DataDir == "" {
+		return nil, toolErr("data dir not configured")
+	}
+	if in.FilePath == "" {
+		return nil, toolErr("file_path is required")
+	}
+	info, err := os.Stat(in.FilePath)
+	if err != nil {
+		return nil, toolErr("file %s does not exist: %v", in.FilePath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, toolErr("file %s is not a regular file", in.FilePath)
+	}
+	if info.Size() > 64<<20 {
+		return nil, toolErr("file %s exceeds 64 MiB", in.FilePath)
+	}
+
+	site := newSiteID(12)
+	target := filepath.Join(d.cfg.DataDir, site)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return nil, toolErr("creating %s: %v", target, err)
+	}
+	name := filepath.Base(in.FilePath)
+	if err := copyFile(in.FilePath, filepath.Join(target, name), &copyStats{}); err != nil {
+		os.RemoveAll(target)
+		return nil, toolErr("uploading %s: %v", in.FilePath, err)
+	}
+
+	url := "/data/" + site + "/" + name
+	if d.cfg.Domain != "" {
+		url = "http://" + site + "." + d.cfg.Domain + "/" + name
+	}
+	return mockOutput(map[string]any{"status": "ok", "cdn_url": url})
 }
 
 // deploySuccess renders the deploy result exactly like the real server:

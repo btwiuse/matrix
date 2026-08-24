@@ -216,3 +216,73 @@ func TestLocalDeployRemoteDeployAbsoluteURLWithDomain(t *testing.T) {
 		t.Errorf("website_url = %q, want http://<site>.matrix.k0s.io", u)
 	}
 }
+
+// TestLocalDeployUploadToCDN publishes a server file and returns a
+// reachable cdn_url.
+func TestLocalDeployUploadToCDN(t *testing.T) {
+	h, ws, data := newTestDeploy(t)
+	writeTree(t, ws, map[string]string{"site.tar.gz": "archive-bytes"})
+
+	out, err := h.UploadToCDN(context.Background(), &matrix.UploadToCDNRequest{
+		FilePath: ws + "/site.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("UploadToCDN: %v", err)
+	}
+	body := deployOutput(t, out)
+	url, _ := body["cdn_url"].(string)
+	if !strings.HasPrefix(url, "/data/") || !strings.HasSuffix(url, "/site.tar.gz") {
+		t.Fatalf("cdn_url = %q, want /data/<site>/site.tar.gz", url)
+	}
+	site := strings.TrimSuffix(strings.TrimPrefix(url, "/data/"), "/site.tar.gz")
+	if got := readFile(t, filepath.Join(data, site, "site.tar.gz")); got != "archive-bytes" {
+		t.Errorf("uploaded content = %q", got)
+	}
+}
+
+func TestLocalDeployUploadToCDNErrors(t *testing.T) {
+	h, ws, _ := newTestDeploy(t)
+	if _, err := h.UploadToCDN(context.Background(), &matrix.UploadToCDNRequest{}); err == nil {
+		t.Error("empty file_path must fail")
+	}
+	if _, err := h.UploadToCDN(context.Background(), &matrix.UploadToCDNRequest{FilePath: ws + "/missing.tar.gz"}); err == nil {
+		t.Error("missing file must fail")
+	}
+	if _, err := h.UploadToCDN(context.Background(), &matrix.UploadToCDNRequest{FilePath: ws}); err == nil {
+		t.Error("directory must fail")
+	}
+}
+
+// TestLocalDeployRemoteDeployFromUploadedArchive runs the two-step flow:
+// upload_to_cdn then remote_deploy with the returned /data/ path (read
+// locally, no network).
+func TestLocalDeployRemoteDeployFromUploadedArchive(t *testing.T) {
+	h, ws, data := newTestDeploy(t)
+	writeTree(t, ws, map[string]string{
+		"site.tar.gz": string(tarGzBytes(t, map[string]string{"index.html": "<h1>cdn flow</h1>"})),
+	})
+
+	up, err := h.UploadToCDN(context.Background(), &matrix.UploadToCDNRequest{FilePath: ws + "/site.tar.gz"})
+	if err != nil {
+		t.Fatalf("UploadToCDN: %v", err)
+	}
+	cdnURL, _ := deployOutput(t, up)["cdn_url"].(string)
+
+	out, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{ArchiveURL: cdnURL})
+	if err != nil {
+		t.Fatalf("RemoteDeploy: %v", err)
+	}
+	site := strings.TrimSuffix(strings.TrimPrefix(deployOutput(t, out)["website_url"].(string), "/data/"), "/")
+	if got := readFile(t, filepath.Join(data, site, "index.html")); got != "<h1>cdn flow</h1>" {
+		t.Errorf("published index.html = %q", got)
+	}
+}
+
+func TestLocalDeployRemoteDeployRejectsEscapingDataPath(t *testing.T) {
+	h, _, _ := newTestDeploy(t)
+	if _, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{
+		ArchiveURL: "/data/../../etc/passwd",
+	}); err == nil {
+		t.Error("escaping /data path must fail")
+	}
+}
