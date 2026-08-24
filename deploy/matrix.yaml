@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matrix
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: matrix-config
+  namespace: matrix
+data:
+  MATRIX_DATA_DIR: "/data"
+  MATRIX_WORKSPACE: "/workspace"
+  MATRIX_DOMAIN: "matrix.example.com"
+  PORT: "8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: matrix-backend
+  namespace: matrix
+type: Opaque
+stringData:
+  MATRIX_URL: "http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message"
+  MATRIX_SK: "sk-please-replace"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: matrix-data
+  namespace: matrix
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matrix
+  namespace: matrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: matrix
+  template:
+    metadata:
+      labels:
+        app: matrix
+    spec:
+      containers:
+        - name: matrix
+          image: ghcr.io/gearshell/inject-proxy:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: matrix-config
+            - secretRef:
+                name: matrix-backend
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: workspace
+              mountPath: /workspace
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: matrix-data
+        - name: workspace
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: matrix
+  namespace: matrix
+spec:
+  selector:
+    app: matrix
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matrix
+  namespace: matrix
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: matrix.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: matrix
+                port:
+                  name: http
+    - host: "*.matrix.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: matrix
+                port:
+                  name: http
