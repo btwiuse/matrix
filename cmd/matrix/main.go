@@ -155,7 +155,10 @@ func main() {
 				w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 				w.Write(htmlinject.DeploySiteSkill)
 			})
-			return http.ListenAndServe(addr, skill)
+			// CORS first: every response allows cross-origin calls (the API
+			// is meant to be called from anywhere, including browsers).
+			var final http.Handler = matrix.NewCORS(skill)
+			return http.ListenAndServe(addr, final)
 		},
 	}
 
