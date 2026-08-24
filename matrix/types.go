@@ -199,6 +199,16 @@ type RemoteDeployRequest struct {
 	ProjectName string `json:"project_name,omitempty"`
 }
 
+// UploadFileRequest is the input of upload_file: base64 file bytes stored
+// on the server's CDN, reachable at the returned URL.
+type UploadFileRequest struct {
+	// Data is the base64-encoded file content (up to 64 MiB decoded).
+	Data string `json:"data"`
+	// Filename is the name the file is served under (optional; defaults
+	// to "file"). Only the base name is used.
+	Filename string `json:"filename,omitempty"`
+}
+
 // InitReactProjectRequest is the input of init_react_project.
 type InitReactProjectRequest struct {
 	ProjectName string `json:"project_name"`

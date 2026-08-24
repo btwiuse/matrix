@@ -231,6 +231,11 @@ func (p *ProxyHandler) RemoteDeploy(_ context.Context, _ *RemoteDeployRequest) (
 	return nil, toolErr("remote_deploy is a replica extension; use deploy in proxy mode")
 }
 
+// UploadFile is a replica-only extension, mirroring RemoteDeploy.
+func (p *ProxyHandler) UploadFile(_ context.Context, _ *UploadFileRequest) (Output, error) {
+	return nil, toolErr("upload_file is a replica extension; use upload_to_cdn in proxy mode")
+}
+
 func (p *ProxyHandler) InitReactProject(ctx context.Context, in *InitReactProjectRequest) (Output, error) {
 	return p.call(ctx, "init_react_project", in)
 }

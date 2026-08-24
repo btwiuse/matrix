@@ -46,8 +46,8 @@ func TestToolsList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	if len(res.Tools) != 23 {
-		t.Fatalf("expected 23 tools (22 from the real server + remote_deploy), got %d", len(res.Tools))
+	if len(res.Tools) != 24 {
+		t.Fatalf("expected 24 tools (22 from the real server + remote_deploy + upload_file), got %d", len(res.Tools))
 	}
 
 	// Verify every tool name matches the embedded real schema, and every
@@ -391,8 +391,8 @@ func TestHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http ListTools: %v", err)
 	}
-	if len(res.Tools) != 23 {
-		t.Fatalf("expected 23 tools over HTTP, got %d", len(res.Tools))
+	if len(res.Tools) != 24 {
+		t.Fatalf("expected 24 tools over HTTP, got %d", len(res.Tools))
 	}
 
 	call, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -439,8 +439,8 @@ func TestHTTPTransportProxyMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http ListTools: %v", err)
 	}
-	if len(res.Tools) != 23 {
-		t.Fatalf("expected 23 tools over HTTP proxy, got %d", len(res.Tools))
+	if len(res.Tools) != 24 {
+		t.Fatalf("expected 24 tools over HTTP proxy, got %d", len(res.Tools))
 	}
 
 	call, err := session.CallTool(context.Background(), &mcp.CallToolParams{

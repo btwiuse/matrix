@@ -31,6 +31,7 @@ type Handler interface {
 	ImagesList(ctx context.Context, in *ImagesListRequest) (Output, error)
 	Deploy(ctx context.Context, in *DeployRequest) (Output, error)
 	RemoteDeploy(ctx context.Context, in *RemoteDeployRequest) (Output, error)
+	UploadFile(ctx context.Context, in *UploadFileRequest) (Output, error)
 	InitReactProject(ctx context.Context, in *InitReactProjectRequest) (Output, error)
 	DeployHTMLPresentation(ctx context.Context, in *DeployHTMLPresentationRequest) (Output, error)
 	UploadToCDN(ctx context.Context, in *UploadToCDNRequest) (Output, error)

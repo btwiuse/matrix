@@ -173,6 +173,11 @@ func (m *MockHandler) RemoteDeploy(_ context.Context, _ *RemoteDeployRequest) (O
 	return deploySuccess(newWebsiteID(), "https://mock.example.com/"+site), nil
 }
 
+func (m *MockHandler) UploadFile(_ context.Context, _ *UploadFileRequest) (Output, error) {
+	site := newSiteID(12)
+	return mockOutput(map[string]any{"status": "ok", "cdn_url": "https://mock.example.com/" + site + "/file"})
+}
+
 func (m *MockHandler) InitReactProject(_ context.Context, in *InitReactProjectRequest) (Output, error) {
 	return mockOutput(map[string]any{"status": "ok", "project_name": in.ProjectName, "target_dir": in.TargetDir})
 }

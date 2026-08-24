@@ -286,3 +286,68 @@ func TestLocalDeployRemoteDeployRejectsEscapingDataPath(t *testing.T) {
 		t.Error("escaping /data path must fail")
 	}
 }
+
+// TestLocalDeployUploadFile publishes base64 content from the caller.
+func TestLocalDeployUploadFile(t *testing.T) {
+	h, _, data := newTestDeploy(t)
+	out, err := h.UploadFile(context.Background(), &matrix.UploadFileRequest{
+		Data:     base64.StdEncoding.EncodeToString([]byte("local bytes")),
+		Filename: "my.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	url, _ := deployOutput(t, out)["cdn_url"].(string)
+	if !strings.HasSuffix(url, "/my.tar.gz") {
+		t.Fatalf("cdn_url = %q, want /data/<site>/my.tar.gz", url)
+	}
+	site := strings.TrimSuffix(strings.TrimPrefix(url, "/data/"), "/my.tar.gz")
+	if got := readFile(t, filepath.Join(data, site, "my.tar.gz")); got != "local bytes" {
+		t.Errorf("uploaded content = %q", got)
+	}
+}
+
+func TestLocalDeployUploadFileErrors(t *testing.T) {
+	h, _, _ := newTestDeploy(t)
+	if _, err := h.UploadFile(context.Background(), &matrix.UploadFileRequest{}); err == nil {
+		t.Error("empty data must fail")
+	}
+	if _, err := h.UploadFile(context.Background(), &matrix.UploadFileRequest{Data: "%%%"}); err == nil {
+		t.Error("invalid base64 must fail")
+	}
+	// path-traversal-looking filenames collapse to their base name.
+	out, err := h.UploadFile(context.Background(), &matrix.UploadFileRequest{
+		Data:     base64.StdEncoding.EncodeToString([]byte("x")),
+		Filename: "../../evil.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	url, _ := deployOutput(t, out)["cdn_url"].(string)
+	if strings.Contains(url, "..") {
+		t.Errorf("cdn_url must not contain traversal: %q", url)
+	}
+}
+
+// TestLocalDeployLocalFileEndToEnd runs the full local-file flow: upload_file
+// then remote_deploy via the returned /data/ path.
+func TestLocalDeployLocalFileEndToEnd(t *testing.T) {
+	h, _, data := newTestDeploy(t)
+	up, err := h.UploadFile(context.Background(), &matrix.UploadFileRequest{
+		Data:     base64.StdEncoding.EncodeToString(tarGzBytes(t, map[string]string{"index.html": "<h1>local end to end</h1>"})),
+		Filename: "site.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	cdnURL, _ := deployOutput(t, up)["cdn_url"].(string)
+
+	out, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{ArchiveURL: cdnURL})
+	if err != nil {
+		t.Fatalf("RemoteDeploy: %v", err)
+	}
+	site := strings.TrimSuffix(strings.TrimPrefix(deployOutput(t, out)["website_url"].(string), "/data/"), "/")
+	if got := readFile(t, filepath.Join(data, site, "index.html")); got != "<h1>local end to end</h1>" {
+		t.Errorf("published index.html = %q", got)
+	}
+}

@@ -158,6 +158,9 @@ func registerAll(server *mcp.Server, byName map[string]ToolSpec, h Handler) erro
 	if err := registerRemoteDeploy(server, h); err != nil {
 		return err
 	}
+	if err := registerUploadFile(server, h); err != nil {
+		return err
+	}
 	if err := reg1(server, byName, "init_react_project", h.InitReactProject); err != nil {
 		return err
 	}
@@ -223,6 +226,33 @@ func registerRemoteDeploy(server *mcp.Server, h Handler) error {
 		Description: "Deploy a built website from an uploaded .tar.gz or .zip archive. Provide archive_url (server downloads it) or archive_data (base64-encoded archive). The archive should contain index.html at its root. Returns a public URL where the deployed website can be accessed.",
 		InputSchema: json.RawMessage(remoteDeploySchema),
 	}, h.RemoteDeploy)
+}
+
+// uploadFileSchema is the input schema of the replica-only upload_file
+// tool: base64 content from the caller, published to the CDN.
+const uploadFileSchema = `{
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "string",
+      "description": "Base64-encoded file content (up to 64 MiB decoded)"
+    },
+    "filename": {
+      "type": "string",
+      "description": "Name the file is served under (optional, default \"file\")"
+    }
+  },
+  "required": ["data"]
+}`
+
+// registerUploadFile registers the upload_file tool, the replica-only
+// counterpart of upload_to_cdn for callers that hold the file locally.
+func registerUploadFile(server *mcp.Server, h Handler) error {
+	return register(server, ToolSpec{
+		Name:        "upload_file",
+		Description: "Upload base64 file content to the CDN and return the public CDN URL. Use this to make files from your local machine available to external services (upload_to_cdn only accepts server-side paths). The returned URL can be passed to remote_deploy as archive_url.",
+		InputSchema: json.RawMessage(uploadFileSchema),
+	}, h.UploadFile)
 }
 
 // reg1 looks up the tool spec by name and registers the typed handler call

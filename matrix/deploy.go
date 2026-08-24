@@ -399,6 +399,50 @@ func (d *LocalDeploy) UploadToCDN(_ context.Context, in *UploadToCDNRequest) (Ou
 	return mockOutput(map[string]any{"status": "ok", "cdn_url": url})
 }
 
+// UploadFile uploads base64 file content from the caller to the local CDN:
+// the bytes are stored under a fresh random subdomain and the returned
+// cdn_url is publicly reachable. This is the counterpart of UploadToCDN for
+// clients that hold the file locally (upload_to_cdn only takes server-side
+// paths, like on the real server).
+func (d *LocalDeploy) UploadFile(_ context.Context, in *UploadFileRequest) (Output, error) {
+	if in == nil {
+		return nil, toolErr("nil request")
+	}
+	if d.cfg.DataDir == "" {
+		return nil, toolErr("data dir not configured")
+	}
+	data, err := base64.StdEncoding.DecodeString(in.Data)
+	if err != nil {
+		return nil, toolErr("data is not valid base64: %v", err)
+	}
+	if len(data) == 0 {
+		return nil, toolErr("data is empty")
+	}
+	if len(data) > 64<<20 {
+		return nil, toolErr("file exceeds 64 MiB")
+	}
+	name := filepath.Base(in.Filename)
+	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+		name = "file"
+	}
+
+	site := newSiteID(12)
+	target := filepath.Join(d.cfg.DataDir, site)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return nil, toolErr("creating %s: %v", target, err)
+	}
+	if err := os.WriteFile(filepath.Join(target, name), data, 0o644); err != nil {
+		os.RemoveAll(target)
+		return nil, toolErr("writing %s: %v", name, err)
+	}
+
+	url := "/data/" + site + "/" + name
+	if d.cfg.Domain != "" {
+		url = "http://" + site + "." + d.cfg.Domain + "/" + name
+	}
+	return mockOutput(map[string]any{"status": "ok", "cdn_url": url})
+}
+
 // deploySuccess renders the deploy result exactly like the real server:
 // Python-style JSON (space after colon) with the insertion order
 // website_id, website_url, screenshot_url.
