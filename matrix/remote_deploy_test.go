@@ -379,4 +379,13 @@ func TestDeploySchemeHttps(t *testing.T) {
 	if u, _ := deployOutput(t, up)["cdn_url"].(string); !strings.HasPrefix(u, "https://") {
 		t.Errorf("upload_file cdn_url = %q, want https", u)
 	}
+	rd, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{
+		ArchiveData: base64.StdEncoding.EncodeToString(zipBytes(t, map[string]string{"index.html": "x"})),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := deployOutput(t, rd)["website_url"].(string); !strings.HasPrefix(u, "https://") {
+		t.Errorf("remote_deploy website_url = %q, want https", u)
+	}
 }

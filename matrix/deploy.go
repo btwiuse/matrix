@@ -311,7 +311,7 @@ func (d *LocalDeploy) RemoteDeploy(ctx context.Context, in *RemoteDeployRequest)
 
 	url := "/data/" + site + "/"
 	if d.cfg.Domain != "" {
-		url = "http://" + site + "." + d.cfg.Domain
+		url = d.siteURL(site)
 	}
 	return deploySuccess(newWebsiteID(), url), nil
 }
