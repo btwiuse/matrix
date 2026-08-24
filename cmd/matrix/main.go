@@ -21,10 +21,10 @@ import (
 	"strings"
 	"time"
 
-	htmlinject "github.com/gearshell/inject-proxy"
-	"github.com/gearshell/inject-proxy/internal/deploycmd"
-	"github.com/gearshell/inject-proxy/matrix"
-	"github.com/gearshell/inject-proxy/rewrite"
+	htmlinject "github.com/gearshell/matrix"
+	"github.com/gearshell/matrix/internal/deploycmd"
+	"github.com/gearshell/matrix/matrix"
+	"github.com/gearshell/matrix/rewrite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )

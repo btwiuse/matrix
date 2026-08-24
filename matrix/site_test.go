@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gearshell/inject-proxy/rewrite"
+	"github.com/gearshell/matrix/rewrite"
 )
 
 // writeSite creates dataDir/project/index.html (and optional extra files).

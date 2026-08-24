@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/matrix/matrix"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

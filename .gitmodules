@@ -1,4 +1,4 @@
 [submodule "memory"]
 	path = memory
-	url = https://github.com/btwiuse/matrix.wiki.git
+	url = https://github.com/gearshell/matrix.wiki.git
 	branch = master

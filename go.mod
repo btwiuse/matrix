@@ -1,4 +1,4 @@
-module github.com/gearshell/inject-proxy
+module github.com/gearshell/matrix
 
 go 1.27
 

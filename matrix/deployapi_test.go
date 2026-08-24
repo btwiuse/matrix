@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/matrix/matrix"
 )
 
 // TestDeployAPIUploadPublishesSite posts a raw archive body and checks the

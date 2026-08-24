@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/matrix/matrix"
 )
 
 // TestRouterDispatch verifies Host-based dispatch: the site namespace

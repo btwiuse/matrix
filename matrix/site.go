@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gearshell/inject-proxy/rewrite"
+	"github.com/gearshell/matrix/rewrite"
 )
 
 // SiteHandler serves the deploy data directory over second-level domains:

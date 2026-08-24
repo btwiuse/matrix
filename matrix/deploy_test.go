@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/matrix/matrix"
 )
 
 // newTestDeploy builds a LocalDeploy with an isolated workspace+data dir.

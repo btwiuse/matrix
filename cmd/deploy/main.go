@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gearshell/inject-proxy/internal/deploycmd"
+	"github.com/gearshell/matrix/internal/deploycmd"
 )
 
 func main() {

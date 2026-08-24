@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/gearshell/inject-proxy/rewrite"
+	"github.com/gearshell/matrix/rewrite"
 )
 
 // Config 描述注入代理的静态配置。

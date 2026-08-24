@@ -183,7 +183,7 @@ spec:
             - |
               set -e
               cd /tmp
-              git clone --depth 1 https://github.com/btwiuse/matrix.git src
+              git clone --depth 1 https://github.com/gearshell/matrix.git src
               cd src
               go build -o /usr/local/bin/matrix ./cmd/matrix
               exec matrix --inject /etc/matrix/inject.html

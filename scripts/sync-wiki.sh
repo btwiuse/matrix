@@ -15,13 +15,13 @@
 #   scripts/sync-wiki.sh [<main-repo-path>]
 #
 # Env overrides:
-#   WIKI_REPO  default: git@github.com:btwiuse/matrix.wiki.git
+#   WIKI_REPO  default: git@github.com:gearshell/matrix.wiki.git
 #   WIKI_BRANCH default: master
 set -euo pipefail
 
 MAIN_REPO="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 MAIN_REPO="$(cd "$MAIN_REPO" && pwd)"
-WIKI_REPO="${WIKI_REPO:-git@github.com:btwiuse/matrix.wiki.git}"
+WIKI_REPO="${WIKI_REPO:-git@github.com:gearshell/matrix.wiki.git}"
 WIKI_BRANCH="${WIKI_BRANCH:-master}"
 
 if [[ ! -d "$MAIN_REPO/memory" ]]; then

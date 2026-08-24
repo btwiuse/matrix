@@ -53,7 +53,7 @@ spec:
     spec:
       containers:
         - name: matrix
-          image: ghcr.io/gearshell/inject-proxy:latest
+          image: ghcr.io/gearshell/matrix:latest
           ports:
             - name: http
               containerPort: 8080

@@ -4,7 +4,7 @@
 主代码在 `htmlinject`（根包）、`matrix/`（子包）、`rewrite/`、`cmd/matrix`（单一入口）。
 
 `memory/` 是本仓库的持久记忆目录，以 git submodule 挂载，远端即附属 wiki 仓库
-`btwiuse/matrix.wiki`。所有调研、架构决策、协议细节、可复用经验按主题
+`gearshell/matrix.wiki`。所有调研、架构决策、协议细节、可复用经验按主题
 沉淀到 `memory/` 下（一个主题一个文件），并维护 `memory/Home.md` 索引
 （session 启动时通过 `.crushrc` 的 `option context-path memory/Home.md` 自动加载）。
 

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gearshell/inject-proxy/matrix"
+	"github.com/gearshell/matrix/matrix"
 )
 
 // zipBytes builds a zip archive from files (name -> content).
