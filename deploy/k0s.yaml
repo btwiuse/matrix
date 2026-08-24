@@ -140,6 +140,7 @@ data:
   MATRIX_DATA_DIR: "/data"
   MATRIX_WORKSPACE: "/workspace"
   MATRIX_DOMAIN: "matrix.k0s.io"
+  MATRIX_SCHEME: "https"
   PORT: "8080"
 ---
 apiVersion: v1

@@ -116,10 +116,13 @@ type DeployConfig struct {
 	// WorkspaceDir is the sandbox root: dist_dir must be a sub-directory of
 	// it, mirroring the real server's /workspace requirement.
 	WorkspaceDir string
-	// Domain, when set, makes website_url an absolute http://<site>.<domain>/
+	// Domain, when set, makes website_url an absolute <scheme>://<site>.<domain>/
 	// URL (like the real server's per-deployment subdomain) instead of the
 	// relative /data/<site>/ path.
 	Domain string
+	// Scheme is the URL scheme used for absolute URLs (default "http";
+	// "https" when the server is served behind TLS).
+	Scheme string
 }
 
 // LocalDeploy implements deploy locally with the same contract as the real
@@ -143,7 +146,16 @@ func NewLocalDeploy(h Handler, cfg DeployConfig) *LocalDeploy {
 	if cfg.WorkspaceDir == "" {
 		cfg.WorkspaceDir = "/workspace"
 	}
+	if cfg.Scheme == "" {
+		cfg.Scheme = "http"
+	}
 	return &LocalDeploy{Handler: h, cfg: cfg}
+}
+
+// siteURL renders the absolute URL of a published site: the random id as
+// subdomain of the configured domain, with the configured scheme.
+func (d *LocalDeploy) siteURL(site string) string {
+	return d.cfg.Scheme + "://" + site + "." + d.cfg.Domain
 }
 
 // websiteIDBase is the fixed 3-digit prefix of the real server's website
@@ -248,7 +260,7 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 	// https://<site>.space.mcode.cn.
 	url := "/data/" + site + "/"
 	if d.cfg.Domain != "" {
-		url = "http://" + site + "." + d.cfg.Domain
+		url = d.siteURL(site)
 	}
 	return deploySuccess(id, url), nil
 }
@@ -394,7 +406,7 @@ func (d *LocalDeploy) UploadToCDN(_ context.Context, in *UploadToCDNRequest) (Ou
 
 	url := "/data/" + site + "/" + name
 	if d.cfg.Domain != "" {
-		url = "http://" + site + "." + d.cfg.Domain + "/" + name
+		url = d.siteURL(site) + "/" + name
 	}
 	return mockOutput(map[string]any{"status": "ok", "cdn_url": url})
 }
@@ -438,7 +450,7 @@ func (d *LocalDeploy) UploadFile(_ context.Context, in *UploadFileRequest) (Outp
 
 	url := "/data/" + site + "/" + name
 	if d.cfg.Domain != "" {
-		url = "http://" + site + "." + d.cfg.Domain + "/" + name
+		url = d.siteURL(site) + "/" + name
 	}
 	return mockOutput(map[string]any{"status": "ok", "cdn_url": url})
 }

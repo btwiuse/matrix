@@ -202,8 +202,14 @@ func (s *SiteHandler) serveApex(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "<p>no sites deployed yet</p>")
 	}
 	fmt.Fprint(w, "<ul>")
+	// Absolute links need a scheme; honor the proxy's X-Forwarded-Proto
+	// (the MCP server itself speaks plain HTTP behind TLS).
+	scheme := "http"
+	if r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
 	for _, p := range projects {
-		fmt.Fprintf(w, "<li><a href=\"http://%s.%s/\">%s</a></li>", p, s.domain, html.EscapeString(p))
+		fmt.Fprintf(w, "<li><a href=\"%s://%s.%s/\">%s</a></li>", scheme, p, s.domain, html.EscapeString(p))
 	}
 	fmt.Fprint(w, "</ul></body></html>")
 }

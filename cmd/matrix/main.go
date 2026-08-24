@@ -38,6 +38,7 @@ func main() {
 		dataDir      string
 		workspaceDir string
 		domain       string
+		scheme       string
 		injectFile   string
 		injectHTML   string
 	)
@@ -83,6 +84,7 @@ func main() {
 					DataDir:      dataDir,
 					WorkspaceDir: workspaceDir,
 					Domain:       domain,
+					Scheme:       scheme,
 				})
 				log.Printf("deploy writes assets under %s (workspace %s)", dataDir, workspaceDir)
 			}
@@ -124,6 +126,7 @@ func main() {
 	root.Flags().StringVar(&dataDir, "data-dir", os.Getenv("MATRIX_DATA_DIR"), "deploy writes assets under this directory and serves them by Host (empty = deploy is forwarded/mocked like the rest)")
 	root.Flags().StringVar(&workspaceDir, "workspace-dir", envOr("MATRIX_WORKSPACE", "/workspace"), "workspace root; deploy rejects dist_dir outside it")
 	root.Flags().StringVar(&domain, "domain", envOr("MATRIX_DOMAIN", "localhost"), "apex domain for deploy website_url and site hosting (default $MATRIX_DOMAIN or localhost)")
+	root.Flags().StringVar(&scheme, "scheme", envOr("MATRIX_SCHEME", "http"), "URL scheme (http|https) for absolute deploy/CDN URLs (default $MATRIX_SCHEME or http)")
 	root.Flags().StringVar(&injectFile, "inject", "", "HTML snippet file injected into served index.html pages")
 	root.Flags().StringVar(&injectHTML, "inject-html", "", "inline HTML snippet injected into served index.html pages")
 

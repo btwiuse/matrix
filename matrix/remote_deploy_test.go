@@ -351,3 +351,32 @@ func TestLocalDeployLocalFileEndToEnd(t *testing.T) {
 		t.Errorf("published index.html = %q", got)
 	}
 }
+
+// TestDeploySchemeHttps checks that a configured https scheme lands in the
+// absolute deploy and CDN URLs.
+func TestDeploySchemeHttps(t *testing.T) {
+	root := t.TempDir()
+	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), matrix.DeployConfig{
+		DataDir: root + "/data", WorkspaceDir: root + "/ws",
+		Domain: "matrix.k0s.io", Scheme: "https",
+	})
+	ctx := context.Background()
+
+	writeTree(t, root+"/ws", map[string]string{"dist/index.html": "<h1>s</h1>"})
+	out, err := h.Deploy(ctx, &matrix.DeployRequest{DistDir: root + "/ws/dist"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := deployOutput(t, out)["website_url"].(string); !strings.HasPrefix(u, "https://") {
+		t.Errorf("deploy website_url = %q, want https", u)
+	}
+	up, err := h.UploadFile(ctx, &matrix.UploadFileRequest{
+		Data: base64.StdEncoding.EncodeToString([]byte("x")), Filename: "a.tar.gz",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := deployOutput(t, up)["cdn_url"].(string); !strings.HasPrefix(u, "https://") {
+		t.Errorf("upload_file cdn_url = %q, want https", u)
+	}
+}
