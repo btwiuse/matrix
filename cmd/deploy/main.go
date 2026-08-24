@@ -1,9 +1,9 @@
-// matrix-deploy: deploy a local dist directory or archive to the matrix
+// deploy: deploy a local dist directory or archive to the matrix
 // deploy API over plain HTTP, printing the public site URL.
 //
-//	go run ./cmd/matrix-deploy ./dist
-//	go run ./cmd/matrix-deploy --server https://matrix.k0s.io ./dist
-//	go run ./cmd/matrix-deploy --json ./dist
+//	go run ./cmd/deploy ./dist
+//	go run ./cmd/deploy --server https://matrix.k0s.io ./dist
+//	go run ./cmd/deploy --json ./dist
 package main
 
 import (
@@ -33,7 +33,7 @@ func runCLI(out io.Writer) {
 		asJSON bool
 	)
 	root := &cobra.Command{
-		Use:   "matrix-deploy <dist-dir|archive.tar.gz|archive.zip>",
+		Use:   "deploy <dist-dir|archive.tar.gz|archive.zip>",
 		Short: "Deploy a local site via the matrix deploy API",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

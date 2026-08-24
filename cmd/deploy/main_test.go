@@ -59,7 +59,7 @@ func TestCLIDeploysViaAPI(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>cli</h1>"), 0o644)
 
 	var out strings.Builder
-	os.Args = []string{"matrix-deploy", "--server", srv.URL, dir}
+	os.Args = []string{"deploy", "--server", srv.URL, dir}
 	runCLI(&out)
 	if got := out.String(); got != "https://fake.example.com/site\n" {
 		t.Errorf("stdout = %q", got)
@@ -78,7 +78,7 @@ func TestCLIJSONFlag(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644)
 
 	var out strings.Builder
-	os.Args = []string{"matrix-deploy", "--server", srv.URL, "--json", dir}
+	os.Args = []string{"deploy", "--server", srv.URL, "--json", dir}
 	runCLI(&out)
 	var body map[string]any
 	if err := json.Unmarshal([]byte(out.String()), &body); err != nil {
