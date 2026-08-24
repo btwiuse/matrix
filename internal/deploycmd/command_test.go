@@ -1,4 +1,4 @@
-package main
+package deploycmd
 
 import (
 	"archive/tar"
@@ -59,8 +59,11 @@ func TestCLIDeploysViaAPI(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>cli</h1>"), 0o644)
 
 	var out strings.Builder
-	os.Args = []string{"deploy", "--server", srv.URL, dir}
-	runCLI(&out)
+	cmd := New(&out)
+	cmd.SetArgs([]string{"--server", srv.URL, dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
 	if got := out.String(); got != "https://fake.example.com/site\n" {
 		t.Errorf("stdout = %q", got)
 	}
@@ -78,8 +81,11 @@ func TestCLIJSONFlag(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o644)
 
 	var out strings.Builder
-	os.Args = []string{"deploy", "--server", srv.URL, "--json", dir}
-	runCLI(&out)
+	cmd := New(&out)
+	cmd.SetArgs([]string{"--server", srv.URL, "--json", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
 	var body map[string]any
 	if err := json.Unmarshal([]byte(out.String()), &body); err != nil {
 		t.Fatalf("--json output is not JSON: %v (%s)", err, out.String())

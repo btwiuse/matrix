@@ -22,6 +22,7 @@ import (
 	"time"
 
 	htmlinject "github.com/gearshell/inject-proxy"
+	"github.com/gearshell/inject-proxy/internal/deploycmd"
 	"github.com/gearshell/inject-proxy/matrix"
 	"github.com/gearshell/inject-proxy/rewrite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -174,6 +175,10 @@ func main() {
 	root.Flags().StringVar(&scheme, "scheme", envOr("MATRIX_SCHEME", "http"), "URL scheme (http|https) for absolute deploy/CDN URLs (default $MATRIX_SCHEME or http)")
 	root.Flags().StringVar(&injectFile, "inject", "", "HTML snippet file injected into served index.html pages")
 	root.Flags().StringVar(&injectHTML, "inject-html", "", "inline HTML snippet injected into served index.html pages")
+
+	// "matrix deploy <dist-dir|archive>": publish a local site via the
+	// deploy API without starting the server.
+	root.AddCommand(deploycmd.New(os.Stdout))
 
 	if err := root.Execute(); err != nil {
 		log.Fatal(err)
