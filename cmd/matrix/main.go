@@ -100,7 +100,12 @@ func main() {
 			if err != nil {
 				return err
 			}
-			opts := &mcp.StreamableHTTPOptions{Stateless: true}
+			opts := &mcp.StreamableHTTPOptions{
+				Stateless: true,
+				// The SDK's default 4 MiB cap would reject the base64 bodies
+				// upload_file accepts (64 MiB decoded ~ 85 MiB encoded).
+				MaxRequestBodyBytes: 96 << 20,
+			}
 			mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
 				if r.URL.Path == "/mcp/mini/message" {
 					return miniServer
