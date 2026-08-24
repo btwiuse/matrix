@@ -127,6 +127,18 @@ func main() {
 				sites := matrix.NewSiteHandlerWithInjector(dataDir, domain, inj)
 				h = matrix.NewRouter(h, sites)
 				log.Printf("serving deployed sites at http://<site>.%s/ (apex listing http://%s/)", sites.Domain(), sites.Domain())
+
+				// POST /api/deploy: raw archive body -> deployed site.
+				// Must run before the MCP/envelope handler.
+				api := matrix.NewDeployAPI(handler.(*matrix.LocalDeploy))
+				next := h
+				h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/api/deploy" {
+						api.ServeHTTP(w, r)
+						return
+					}
+					next.ServeHTTP(w, r)
+				})
 			}
 
 			log.Printf("matrix replica listening on %s (streamable HTTP; full tools at /mcp/message, publish-only tools at /mcp/mini/message)", addr)

@@ -265,6 +265,37 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 	return deploySuccess(id, url), nil
 }
 
+// publishBytes unpacks archive bytes and publishes them like Deploy,
+// returning the deploy result. Shared by RemoteDeploy and the HTTP
+// upload endpoint.
+func (d *LocalDeploy) publishBytes(data []byte) (Output, error) {
+	if len(data) == 0 {
+		return nil, toolErr("archive is empty")
+	}
+	root, err := extractArchive(os.TempDir(), data)
+	if err != nil {
+		return nil, toolErr("extracting archive: %v", err)
+	}
+	defer os.RemoveAll(root)
+
+	site := newSiteID(12)
+	target := filepath.Join(d.cfg.DataDir, site)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return nil, toolErr("creating %s: %v", target, err)
+	}
+	st := copyStats{}
+	if err := copyTree(root, target, &st); err != nil {
+		os.RemoveAll(target)
+		return nil, toolErr("copying %s: %v", root, err)
+	}
+
+	url := "/data/" + site + "/"
+	if d.cfg.Domain != "" {
+		url = d.siteURL(site)
+	}
+	return deploySuccess(newWebsiteID(), url), nil
+}
+
 // RemoteDeploy publishes a site from an uploaded archive (.tar.gz or .zip)
 // instead of a workspace directory: the server downloads ArchiveURL or
 // decodes ArchiveData (base64), unpacks it and publishes the result exactly
@@ -288,32 +319,7 @@ func (d *LocalDeploy) RemoteDeploy(ctx context.Context, in *RemoteDeployRequest)
 	if err != nil {
 		return nil, toolErr("%v", err)
 	}
-	if len(data) == 0 {
-		return nil, toolErr("archive is empty")
-	}
-
-	root, err := extractArchive(os.TempDir(), data)
-	if err != nil {
-		return nil, toolErr("extracting archive: %v", err)
-	}
-	defer os.RemoveAll(root)
-
-	site := newSiteID(12)
-	target := filepath.Join(d.cfg.DataDir, site)
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		return nil, toolErr("creating %s: %v", target, err)
-	}
-	st := copyStats{}
-	if err := copyTree(root, target, &st); err != nil {
-		os.RemoveAll(target)
-		return nil, toolErr("copying %s: %v", root, err)
-	}
-
-	url := "/data/" + site + "/"
-	if d.cfg.Domain != "" {
-		url = d.siteURL(site)
-	}
-	return deploySuccess(newWebsiteID(), url), nil
+	return d.publishBytes(data)
 }
 
 // fetchArchive resolves the archive bytes from the request: a /data/.../
