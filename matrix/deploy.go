@@ -2,14 +2,17 @@ package matrix
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // ToolError makes a handler return a JSON tool error whose text matches the
@@ -248,6 +251,89 @@ func (d *LocalDeploy) Deploy(ctx context.Context, in *DeployRequest) (Output, er
 		url = "http://" + site + "." + d.cfg.Domain
 	}
 	return deploySuccess(id, url), nil
+}
+
+// RemoteDeploy publishes a site from an uploaded archive (.tar.gz or .zip)
+// instead of a workspace directory: the server downloads ArchiveURL or
+// decodes ArchiveData (base64), unpacks it and publishes the result exactly
+// like Deploy. This is the extension that makes deploy usable through a
+// public server without any files on the server side.
+func (d *LocalDeploy) RemoteDeploy(ctx context.Context, in *RemoteDeployRequest) (Output, error) {
+	if in == nil {
+		return nil, toolErr("nil request")
+	}
+	if d.cfg.DataDir == "" {
+		return nil, toolErr("data dir not configured")
+	}
+	if in.ArchiveURL != "" && in.ArchiveData != "" {
+		return nil, toolErr("provide either archive_url or archive_data, not both")
+	}
+	if in.ArchiveURL == "" && in.ArchiveData == "" {
+		return nil, toolErr("provide either archive_url or archive_data")
+	}
+
+	data, err := fetchArchive(ctx, in)
+	if err != nil {
+		return nil, toolErr("%v", err)
+	}
+	if len(data) == 0 {
+		return nil, toolErr("archive is empty")
+	}
+
+	root, err := extractArchive(os.TempDir(), data)
+	if err != nil {
+		return nil, toolErr("extracting archive: %v", err)
+	}
+	defer os.RemoveAll(root)
+
+	site := newSiteID(12)
+	target := filepath.Join(d.cfg.DataDir, site)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return nil, toolErr("creating %s: %v", target, err)
+	}
+	st := copyStats{}
+	if err := copyTree(root, target, &st); err != nil {
+		os.RemoveAll(target)
+		return nil, toolErr("copying %s: %v", root, err)
+	}
+
+	url := "/data/" + site + "/"
+	if d.cfg.Domain != "" {
+		url = "http://" + site + "." + d.cfg.Domain
+	}
+	return deploySuccess(newWebsiteID(), url), nil
+}
+
+// fetchArchive resolves the archive bytes from the request: a downloaded
+// URL (capped at 64 MiB) or a base64-encoded body.
+func fetchArchive(ctx context.Context, in *RemoteDeployRequest) ([]byte, error) {
+	if in.ArchiveURL != "" {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, in.ArchiveURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("parsing archive_url: %v", err)
+		}
+		resp, err := (&http.Client{Timeout: 2 * time.Minute}).Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("downloading archive: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("downloading archive: HTTP %d", resp.StatusCode)
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20+1))
+		if err != nil {
+			return nil, fmt.Errorf("reading archive: %v", err)
+		}
+		if len(data) > 64<<20 {
+			return nil, fmt.Errorf("archive exceeds 64 MiB")
+		}
+		return data, nil
+	}
+	data, err := base64.StdEncoding.DecodeString(in.ArchiveData)
+	if err != nil {
+		return nil, fmt.Errorf("archive_data is not valid base64: %v", err)
+	}
+	return data, nil
 }
 
 // deploySuccess renders the deploy result exactly like the real server:

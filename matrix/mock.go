@@ -168,6 +168,11 @@ func (m *MockHandler) Deploy(_ context.Context, _ *DeployRequest) (Output, error
 	return deploySuccess(newWebsiteID(), "https://mock.example.com/"+site), nil
 }
 
+func (m *MockHandler) RemoteDeploy(_ context.Context, _ *RemoteDeployRequest) (Output, error) {
+	site := newSiteID(12)
+	return deploySuccess(newWebsiteID(), "https://mock.example.com/"+site), nil
+}
+
 func (m *MockHandler) InitReactProject(_ context.Context, in *InitReactProjectRequest) (Output, error) {
 	return mockOutput(map[string]any{"status": "ok", "project_name": in.ProjectName, "target_dir": in.TargetDir})
 }

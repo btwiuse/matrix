@@ -224,6 +224,13 @@ func (p *ProxyHandler) Deploy(ctx context.Context, in *DeployRequest) (Output, e
 	return p.call(ctx, "deploy", in)
 }
 
+// RemoteDeploy is a replica-only extension: the real matrix server has no
+// such tool, so in proxy mode it is a hard error rather than a forwarded
+// call the backend would reject with "tool not found".
+func (p *ProxyHandler) RemoteDeploy(_ context.Context, _ *RemoteDeployRequest) (Output, error) {
+	return nil, toolErr("remote_deploy is a replica extension; use deploy in proxy mode")
+}
+
 func (p *ProxyHandler) InitReactProject(ctx context.Context, in *InitReactProjectRequest) (Output, error) {
 	return p.call(ctx, "init_react_project", in)
 }

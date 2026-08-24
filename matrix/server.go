@@ -155,6 +155,9 @@ func registerAll(server *mcp.Server, byName map[string]ToolSpec, h Handler) erro
 	if err := regDeploy(server, byName, h); err != nil {
 		return err
 	}
+	if err := registerRemoteDeploy(server, h); err != nil {
+		return err
+	}
 	if err := reg1(server, byName, "init_react_project", h.InitReactProject); err != nil {
 		return err
 	}
@@ -188,6 +191,38 @@ func regDeploy(server *mcp.Server, byName map[string]ToolSpec, h Handler) error 
 	}
 	spec.InputSchema = lenient
 	return register(server, spec, h.Deploy)
+}
+
+// remoteDeploySchema is the input schema of the replica-only remote_deploy
+// tool. The real matrix server has no such tool, so it is not part of the
+// captured schema.json and is defined here instead.
+const remoteDeploySchema = `{
+  "type": "object",
+  "properties": {
+    "archive_url": {
+      "type": "string",
+      "description": "URL of a .tar.gz or .zip archive containing the built site (index.html at the archive root)"
+    },
+    "archive_data": {
+      "type": "string",
+      "description": "Base64-encoded .tar.gz or .zip archive containing the built site"
+    },
+    "project_name": {
+      "type": "string",
+      "description": "Project name (optional)"
+    }
+  }
+}`
+
+// registerRemoteDeploy registers the remote_deploy tool, the replica-only
+// extension for publishing a site from an uploaded archive without any
+// files on the server.
+func registerRemoteDeploy(server *mcp.Server, h Handler) error {
+	return register(server, ToolSpec{
+		Name:        "remote_deploy",
+		Description: "Deploy a built website from an uploaded .tar.gz or .zip archive. Provide archive_url (server downloads it) or archive_data (base64-encoded archive). The archive should contain index.html at its root. Returns a public URL where the deployed website can be accessed.",
+		InputSchema: json.RawMessage(remoteDeploySchema),
+	}, h.RemoteDeploy)
 }
 
 // reg1 looks up the tool spec by name and registers the typed handler call

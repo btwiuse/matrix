@@ -182,6 +182,20 @@ type DeployRequest struct {
 	ProjectType string `json:"project_type,omitempty"`
 }
 
+// RemoteDeployRequest is the input of remote_deploy. Exactly one of
+// ArchiveURL and ArchiveData must be set: the archive (.tar.gz or .zip)
+// carries the built site with index.html at its root, and is deployed the
+// same way deploy publishes a workspace directory.
+type RemoteDeployRequest struct {
+	// ArchiveURL is an http(s) URL the server downloads the archive from.
+	ArchiveURL string `json:"archive_url,omitempty"`
+	// ArchiveData is the base64-encoded archive, for callers that cannot
+	// expose a public URL.
+	ArchiveData string `json:"archive_data,omitempty"`
+	// ProjectName is advisory only, like deploy's project_name.
+	ProjectName string `json:"project_name,omitempty"`
+}
+
 // InitReactProjectRequest is the input of init_react_project.
 type InitReactProjectRequest struct {
 	ProjectName string `json:"project_name"`

@@ -1,0 +1,218 @@
+package matrix_test
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gearshell/inject-proxy/matrix"
+)
+
+// zipBytes builds a zip archive from files (name -> content).
+func zipBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for name, content := range files {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// tarGzBytes builds a .tar.gz archive from files (name -> content).
+func tarGzBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, content := range files {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestExtractArchiveZipAndTarGz(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		bytes func(*testing.T, map[string]string) []byte
+	}{
+		{"zip", zipBytes},
+		{"tar.gz", tarGzBytes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := tc.bytes(t, map[string]string{
+				"dist/index.html": "<h1>hi</h1>",
+				"dist/app.js":     "console.log(1)",
+			})
+			root, err := matrix.ExtractArchiveForTest(t.TempDir(), data)
+			if err != nil {
+				t.Fatalf("extract: %v", err)
+			}
+			defer os.RemoveAll(root)
+			if got := readFile(t, filepath.Join(root, "index.html")); got != "<h1>hi</h1>" {
+				t.Errorf("index.html = %q", got)
+			}
+			if got := readFile(t, filepath.Join(root, "app.js")); got != "console.log(1)" {
+				t.Errorf("app.js = %q", got)
+			}
+		})
+	}
+}
+
+func TestExtractArchiveRejectsTraversal(t *testing.T) {
+	z := zipBytes(t, map[string]string{"../evil.txt": "pwned"})
+	if _, err := matrix.ExtractArchiveForTest(t.TempDir(), z); err == nil {
+		t.Fatal("zip-slip entry must be rejected")
+	}
+	tg := tarGzBytes(t, map[string]string{"../../etc/passwd": "x"})
+	if _, err := matrix.ExtractArchiveForTest(t.TempDir(), tg); err == nil {
+		t.Fatal("tar traversal entry must be rejected")
+	}
+}
+
+func TestExtractArchiveSkipsSymlinks(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: "link", Mode: 0o777, Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
+	tw.WriteHeader(&tar.Header{Name: "ok.txt", Mode: 0o644, Size: 2, Typeflag: tar.TypeReg})
+	tw.Write([]byte("ok"))
+	tw.Close()
+	gz.Close()
+	root, err := matrix.ExtractArchiveForTest(t.TempDir(), buf.Bytes())
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	defer os.RemoveAll(root)
+	if _, err := os.Lstat(filepath.Join(root, "link")); !os.IsNotExist(err) {
+		t.Error("symlink must be skipped")
+	}
+	if got := readFile(t, filepath.Join(root, "ok.txt")); got != "ok" {
+		t.Errorf("ok.txt = %q", got)
+	}
+}
+
+func TestExtractArchiveRejectsUnknownFormat(t *testing.T) {
+	if _, err := matrix.ExtractArchiveForTest(t.TempDir(), []byte("not an archive")); err == nil {
+		t.Fatal("unknown format must be rejected")
+	}
+}
+
+// TestLocalDeployRemoteDeployArchiveData publishes from an inline base64
+// zip and checks the result shape and the published files.
+func TestLocalDeployRemoteDeployArchiveData(t *testing.T) {
+	h, _, data := newTestDeploy(t)
+	out, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{
+		ArchiveData: base64.StdEncoding.EncodeToString(zipBytes(t, map[string]string{
+			"index.html": "<h1>remote</h1>",
+			"assets/app.css": "body{}",
+		})),
+	})
+	if err != nil {
+		t.Fatalf("RemoteDeploy: %v", err)
+	}
+	body := deployOutput(t, out)
+	if id, ok := body["website_id"].(float64); !ok || id < 431000000000000 || id > 431999999999999 {
+		t.Errorf("website_id out of range: %v", body["website_id"])
+	}
+	url, _ := body["website_url"].(string)
+	if !strings.HasPrefix(url, "/data/") || !strings.HasSuffix(url, "/") {
+		t.Errorf("website_url = %q, want /data/<site>/", url)
+	}
+	site := strings.TrimSuffix(strings.TrimPrefix(url, "/data/"), "/")
+	if got := readFile(t, filepath.Join(data, site, "index.html")); got != "<h1>remote</h1>" {
+		t.Errorf("published index.html = %q", got)
+	}
+	if got := readFile(t, filepath.Join(data, site, "assets/app.css")); got != "body{}" {
+		t.Errorf("published app.css = %q", got)
+	}
+}
+
+// TestLocalDeployRemoteDeployArchiveURL downloads the archive from a URL.
+func TestLocalDeployRemoteDeployArchiveURL(t *testing.T) {
+	h, _, _ := newTestDeploy(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(tarGzBytes(t, map[string]string{"site/index.html": "<h1>from url</h1>"}))
+	}))
+	defer srv.Close()
+	out, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{
+		ArchiveURL: srv.URL + "/site.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("RemoteDeploy: %v", err)
+	}
+	if u, _ := deployOutput(t, out)["website_url"].(string); u == "" {
+		t.Fatal("missing website_url")
+	}
+}
+
+func TestLocalDeployRemoteDeployErrors(t *testing.T) {
+	h, _, _ := newTestDeploy(t)
+	ctx := context.Background()
+
+	if _, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{}); err == nil {
+		t.Error("empty request must fail")
+	}
+	if _, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{
+		ArchiveURL: "http://x", ArchiveData: "AAAA",
+	}); err == nil {
+		t.Error("both sources must fail")
+	}
+	if _, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{ArchiveData: "%%%"}); err == nil {
+		t.Error("invalid base64 must fail")
+	}
+	if _, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{ArchiveData: base64.StdEncoding.EncodeToString([]byte("junk"))}); err == nil {
+		t.Error("unknown archive format must fail")
+	}
+	if _, err := h.RemoteDeploy(ctx, &matrix.RemoteDeployRequest{ArchiveURL: "http://127.0.0.1:1/nope.tar.gz"}); err == nil {
+		t.Error("unreachable URL must fail")
+	}
+}
+
+func TestLocalDeployRemoteDeployAbsoluteURLWithDomain(t *testing.T) {
+	root := t.TempDir()
+	h := matrix.NewLocalDeploy(matrix.NewMockHandler(), matrix.DeployConfig{
+		DataDir: root + "/data", WorkspaceDir: root + "/ws", Domain: "matrix.k0s.io",
+	})
+	out, err := h.RemoteDeploy(context.Background(), &matrix.RemoteDeployRequest{
+		ArchiveData: base64.StdEncoding.EncodeToString(zipBytes(t, map[string]string{"index.html": "x"})),
+	})
+	if err != nil {
+		t.Fatalf("RemoteDeploy: %v", err)
+	}
+	u, _ := deployOutput(t, out)["website_url"].(string)
+	if !strings.HasPrefix(u, "http://") || !strings.HasSuffix(u, ".matrix.k0s.io") {
+		t.Errorf("website_url = %q, want http://<site>.matrix.k0s.io", u)
+	}
+}
