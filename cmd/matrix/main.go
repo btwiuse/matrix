@@ -149,7 +149,8 @@ func main() {
 			// the skill is reachable at a stable public URL (used by the
 			// context-path sync in crushrc) without a separate CDN publish.
 			skill := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/SKILL.md" {
+				// Case-insensitive: /SKILL.md, /skill.md, /Skill.md all work.
+				if !strings.EqualFold(r.URL.Path, "/SKILL.md") {
 					h.ServeHTTP(w, r)
 					return
 				}
