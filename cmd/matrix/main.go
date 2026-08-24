@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	htmlinject "github.com/gearshell/inject-proxy"
 	"github.com/gearshell/inject-proxy/matrix"
 	"github.com/gearshell/inject-proxy/rewrite"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -142,7 +143,19 @@ func main() {
 			}
 
 			log.Printf("matrix replica listening on %s (streamable HTTP; full tools at /mcp/message, publish-only tools at /mcp/mini/message)", addr)
-			return http.ListenAndServe(addr, h)
+
+			// /SKILL.md serves the embedded deploy-site SKILL.md on any host, so
+			// the skill is reachable at a stable public URL (used by the
+			// context-path sync in crushrc) without a separate CDN publish.
+			skill := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/SKILL.md" {
+					h.ServeHTTP(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+				w.Write(htmlinject.DeploySiteSkill)
+			})
+			return http.ListenAndServe(addr, skill)
 		},
 	}
 
