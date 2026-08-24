@@ -633,3 +633,49 @@ func textOfTextContent(t *testing.T, envelope string) string {
 	}
 	return text
 }
+
+// TestMiniEndpoint verifies /mcp/mini/message exposes only the two
+// replica extension tools, while the main endpoint keeps all tools.
+func TestMiniEndpoint(t *testing.T) {
+	addr := startHTTPProcess(t, "--mode", "mock")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "matrix-mini-test", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             "http://" + addr + "/mcp/mini/message",
+		DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("mini connect: %v", err)
+	}
+	t.Cleanup(func() { session.Close() })
+
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("mini ListTools: %v", err)
+	}
+	if len(res.Tools) != 2 {
+		t.Fatalf("mini endpoint: expected 2 tools, got %d", len(res.Tools))
+	}
+	names := map[string]bool{}
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	if !names["remote_deploy"] || !names["upload_file"] {
+		t.Errorf("mini endpoint tools = %v, want remote_deploy + upload_file", names)
+	}
+
+	// The two tools actually work over the mini endpoint.
+	call, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "remote_deploy",
+		Arguments: map[string]any{"archive_data": "aGVsbG8="},
+	})
+	if err != nil {
+		t.Fatalf("mini remote_deploy: %v", err)
+	}
+	if call.IsError {
+		t.Fatalf("mini remote_deploy errored: %+v", call)
+	}
+}

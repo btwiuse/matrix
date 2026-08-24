@@ -93,8 +93,20 @@ func main() {
 			if err != nil {
 				return err
 			}
+			// /mcp/mini/message exposes only the replica extension tools
+			// (remote_deploy, upload_file): a public publishing endpoint
+			// without the real matrix tool surface.
+			miniServer, err := matrix.NewMiniServer(handler)
+			if err != nil {
+				return err
+			}
 			opts := &mcp.StreamableHTTPOptions{Stateless: true}
-			mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, opts)
+			mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+				if r.URL.Path == "/mcp/mini/message" {
+					return miniServer
+				}
+				return server
+			}, opts)
 
 			var h http.Handler = matrix.NewEnvelopeRewriter(mcpHandler)
 			if dataDir != "" {
@@ -112,7 +124,7 @@ func main() {
 				log.Printf("serving deployed sites at http://<site>.%s/ (apex listing http://%s/)", sites.Domain(), sites.Domain())
 			}
 
-			log.Printf("matrix replica listening on %s (streamable HTTP)", addr)
+			log.Printf("matrix replica listening on %s (streamable HTTP; full tools at /mcp/message, publish-only tools at /mcp/mini/message)", addr)
 			return http.ListenAndServe(addr, h)
 		},
 	}

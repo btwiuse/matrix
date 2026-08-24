@@ -35,6 +35,18 @@ func LoadSpecs() ([]ToolSpec, error) {
 	return specs, nil
 }
 
+// newBaseServer returns a bare go-sdk server with the replica's identity.
+func newBaseServer() *mcp.Server {
+	return mcp.NewServer(&mcp.Implementation{
+		Name:    "matrix-mcp-replica",
+		Version: "0.1.0",
+	}, &mcp.ServerOptions{
+		Capabilities: &mcp.ServerCapabilities{
+			Tools: &mcp.ToolCapabilities{},
+		},
+	})
+}
+
 // NewServer builds a go-sdk MCP server with all 22 matrix tools registered.
 // Each tool uses the exact input schema from the real server, and dispatches
 // to h (which may proxy to the real backend or serve locally).
@@ -47,20 +59,27 @@ func NewServer(h Handler) (*mcp.Server, error) {
 		return nil, fmt.Errorf("expected 22 tools, got %d (schema drift?)", len(specs))
 	}
 
-	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "matrix-mcp-replica",
-		Version: "0.1.0",
-	}, &mcp.ServerOptions{
-		Capabilities: &mcp.ServerCapabilities{
-			Tools: &mcp.ToolCapabilities{},
-		},
-	})
+	server := newBaseServer()
 
 	byName := map[string]ToolSpec{}
 	for _, s := range specs {
 		byName[s.Name] = s
 	}
 	if err := registerAll(server, byName, h); err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
+// NewMiniServer builds a server exposing only the replica extension tools
+// (remote_deploy, upload_file): a minimal endpoint for public callers that
+// should only publish sites, without the real matrix tool surface.
+func NewMiniServer(h Handler) (*mcp.Server, error) {
+	server := newBaseServer()
+	if err := registerRemoteDeploy(server, h); err != nil {
+		return nil, err
+	}
+	if err := registerUploadFile(server, h); err != nil {
 		return nil, err
 	}
 	return server, nil
