@@ -263,7 +263,10 @@ func TestProxyHandlerForwardsToRealServer(t *testing.T) {
 	// Requires the real matrix server to be reachable; skip otherwise.
 	url := "http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message"
 	token := "sbk_v1_AGQAMY7IGNPLZQPUQE7X5GJKPU_7B4KJGNO6F2UJOFQCFFOIT6V"
-	h := matrix.NewProxyHandler(matrix.ProxyConfig{URL: url, Token: token, Source: "hermes"})
+	h, err := matrix.NewProxyHandler(matrix.ProxyConfig{URL: url, Token: token, Source: "hermes"})
+	if err != nil {
+		t.Fatalf("NewProxyHandler: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -288,7 +291,10 @@ func TestProxyHandlerForwardsToRealServer(t *testing.T) {
 func TestProxyForwardsLowSideEffectTools(t *testing.T) {
 	url := "http://matrix-mcp-server.weaver.svc.cluster.local:8080/mcp/message"
 	token := "sbk_v1_AGQAMY7IGNPLZQPUQE7X5GJKPU_7B4KJGNO6F2UJOFQCFFOIT6V"
-	h := matrix.NewProxyHandler(matrix.ProxyConfig{URL: url, Token: token, Source: "hermes"})
+	h, err := matrix.NewProxyHandler(matrix.ProxyConfig{URL: url, Token: token, Source: "hermes"})
+	if err != nil {
+		t.Fatalf("NewProxyHandler: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

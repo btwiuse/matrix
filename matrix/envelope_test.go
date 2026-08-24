@@ -139,6 +139,96 @@ func TestEnvelopeRewriterOverSSE(t *testing.T) {
 		t.Errorf("SSE rewrite missing display_data: %s", out)
 	}
 }
+func TestEnvelopeRewritePreservesUntouchedBytes(t *testing.T) {
+	body := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"website_id\": 431840818266354, \"website_url\": \"http://abc.localhost\", \"screenshot_url\": \"\"}"}]}}`
+	out, changed := rewriteEnvelope([]byte(body), "deploy")
+	if !changed {
+		t.Fatal("deploy success envelope must be rewritten")
+	}
+	// Only new keys are appended to the result object: the top-level
+	// envelope and the whole content array keep their original bytes.
+	wantPrefix := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"website_id\": 431840818266354, \"website_url\": \"http://abc.localhost\", \"screenshot_url\": \"\"}"}]` 
+	if !strings.HasPrefix(string(out), wantPrefix) {
+		t.Errorf("untouched bytes changed:\n got %s\nwant prefix %s", out, wantPrefix)
+	}
+	if !strings.HasSuffix(string(out), `,"display_data":{"website_id":431840818266354,"website_url":"http://abc.localhost"},"isError":false}}`) {
+		t.Errorf("new keys not appended at the end of the result object: %s", out)
+	}
+}
+
+func TestEnvelopeToolsListPreservesOtherToolsBytes(t *testing.T) {
+	gen := `{"name":"gen_videos","description":"d","inputSchema":{"type":"object"}}`
+	body := `{"jsonrpc":"2.0","id":1,"result":{"tools":[` + gen + `,{"name":"deploy","description":"dd","inputSchema":{"type":"object","properties":{}}}]}}`
+	out, changed := rewriteEnvelope([]byte(body), "")
+	if !changed {
+		t.Fatal("tools/list with deploy must be rewritten")
+	}
+	if !strings.Contains(string(out), gen) {
+		t.Errorf("non-deploy tool bytes changed:\n got %s\nwant embedded %s", out, gen)
+	}
+	// The deploy schema is replaced by the compacted embedded one, required
+	// list included, in the captured key order (type first, required last).
+	if !strings.Contains(string(out), `{"type":"object","properties":{`) {
+		t.Errorf("deploy inputSchema not the embedded schema in captured order: %s", out)
+	}
+	if !strings.Contains(string(out), `"required":["dist_dir"]`) {
+		t.Errorf("deploy inputSchema missing required list: %s", out)
+	}
+	if strings.Contains(string(out), "\n") {
+		t.Errorf("rewritten deploy schema must be compact (single line), got: %s", out)
+	}
+}
+
+// TestEnvelopeRewriterStreamsUnpatchedRequests verifies that requests that
+// need no envelope patching reach the inner handler with the real
+// ResponseWriter (streamed, unbuffered), while deploy calls are buffered so
+// their envelope can be rewritten.
+func TestEnvelopeRewriterStreamsUnpatchedRequests(t *testing.T) {
+	body := `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`
+	var sawBuffer bool
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, sawBuffer = w.(*bufferedResponseWriter)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(body))
+	})
+	srv := httptest.NewServer(NewEnvelopeRewriter(inner))
+	t.Cleanup(srv.Close)
+
+	post := func(payload string) string {
+		t.Helper()
+		sawBuffer = false
+		req, err := http.NewRequest(http.MethodPost, srv.URL+"/", strings.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		got := make([]byte, 1<<20)
+		n, _ := res.Body.Read(got)
+		return string(got[:n])
+	}
+
+	// Non-deploy tool calls stream through untouched, byte-identical.
+	if got := post(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_voice_list"}}`); got != body {
+		t.Errorf("pass-through response changed: %s", got)
+	}
+	if sawBuffer {
+		t.Error("get_voice_list response was buffered, want streaming pass-through")
+	}
+
+	// Deploy calls are buffered for rewriting.
+	if got := post(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"deploy","arguments":{"dist_dir":"dist"}}}`); !strings.Contains(got, `"isError":false`) {
+		t.Errorf("deploy call not rewritten: %s", got)
+	}
+	if !sawBuffer {
+		t.Error("deploy call was not buffered, want buffered rewriting")
+	}
+}
+
 func stubRPC(body string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

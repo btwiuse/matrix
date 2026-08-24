@@ -142,7 +142,7 @@ func proxyHandler(url, token, source string, timeout time.Duration) (matrix.Hand
 		Source:     source,
 		HTTPClient: &http.Client{Timeout: timeout},
 	}
-	return matrix.NewProxyHandler(cfg), nil
+	return matrix.NewProxyHandler(cfg)
 }
 
 // loadInjection resolves the injection snippet: the file wins over the

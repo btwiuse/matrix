@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -26,14 +27,19 @@ type ProxyConfig struct {
 // ProxyHandler forwards every tool call to the real matrix MCP server,
 // preserving its exact behavior and output formats.
 type ProxyHandler struct {
-	cfg  ProxyConfig
-	http *http.Client
-	mu   sync.Mutex
-	id   int
+	http     *http.Client
+	mu       sync.Mutex
+	id       int
+	endpoint string // upstream URL with the sk/source query params attached
 }
 
-// NewProxyHandler builds a ProxyHandler for the given endpoint.
-func NewProxyHandler(cfg ProxyConfig) *ProxyHandler {
+// NewProxyHandler builds a ProxyHandler for the given endpoint. The token
+// and source label are attached as URL query parameters, percent-encoded
+// and merged with any query the endpoint URL already carries.
+func NewProxyHandler(cfg ProxyConfig) (*ProxyHandler, error) {
+	if cfg.URL == "" {
+		return nil, fmt.Errorf("proxy: empty upstream URL")
+	}
 	hc := cfg.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 5 * time.Minute}
@@ -42,7 +48,15 @@ func NewProxyHandler(cfg ProxyConfig) *ProxyHandler {
 	if src == "" {
 		src = "hermes"
 	}
-	return &ProxyHandler{cfg: ProxyConfig{URL: cfg.URL, Token: cfg.Token, Source: src}, http: hc}
+	u, err := url.Parse(cfg.URL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing upstream URL %q: %w", cfg.URL, err)
+	}
+	q := u.Query()
+	q.Set("sk", cfg.Token)
+	q.Set("source", src)
+	u.RawQuery = q.Encode()
+	return &ProxyHandler{http: hc, endpoint: u.String()}, nil
 }
 
 // call forwards a tools/call request and returns the raw text content of the
@@ -77,8 +91,7 @@ func (p *ProxyHandler) call(ctx context.Context, name string, args any) (Output,
 		return nil, err
 	}
 
-	url := p.cfg.URL + "?sk=" + p.cfg.Token + "&source=" + p.cfg.Source
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}
